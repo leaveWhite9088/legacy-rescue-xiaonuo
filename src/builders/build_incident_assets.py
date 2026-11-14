@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """事故现场资产构建器（驻留主控构建目录，绝不拷贝进选手沙盒）：
-生成 128 租户规模的 SQLite 线上快照 (yunce_billing.db) 与 2700+ 行三日生产日志。
+生成 180 租户规模的 SQLite 线上快照 (yunce_billing.db, 29 张表, 64 张 10 月数电票, 11 处开放期受灾现场)
+与 6,900+ 行多源五日生产及批处理日志。
 """
 import json
 import os
@@ -29,17 +30,25 @@ COMPANY_SUFFIXES = [
 ]
 
 SPECIAL_NAMES = {
+    "t_cust_004": "锦绣集团",
     "t_cust_005": "极光电商",
     "t_cust_008": "青禾数字",
     "t_cust_012": "智汇云科技",
     "t_cust_015": "盛世跨境科技",
+    "t_cust_018": "华东精密机械",
     "t_cust_019": "云图数据",
+    "t_cust_029": "LionCity Logistics",
     "t_cust_034": "蓝海智造",
+    "t_cust_041": "启明星辰科技",
     "t_cust_051": "飞跃零售",
     "t_cust_067": "锐捷医疗",
     "t_cust_078": "星河传媒",
     "t_cust_083": "瀚海物联",
     "t_cust_092": "千帆供应链",
+    "t_cust_118": "宏途跨境物流",
+    "t_cust_132": "磐石数科",
+    "t_cust_145": "凌云智能",
+    "t_cust_156": "远航精密",
 }
 
 
@@ -53,6 +62,19 @@ def build_database() -> dict:
     conn = get_connection(db_path)
     try:
         init_schema(conn)
+
+        # ------------------------------------------------------------------
+        # 0. 写入运行期动态配置表 sys_runtime_configs（含 BUG-09 字符串 'false' 现场）
+        # ------------------------------------------------------------------
+        conn.executemany(
+            """INSERT INTO sys_runtime_configs (config_key, config_value, env_scope, updated_by, updated_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                ("waive_upgrade_proration_promo_window", "false", "PROD", "ops_zhaokai", "2026-11-08T10:15:00Z"),
+                ("golden4_gateway_timeout_ms", "3500", "PROD", "sre_zhouming", "2026-10-15T09:00:00Z"),
+                ("batch_ingest_max_events", "500", "PROD", "gateway_team", "2026-10-20T12:00:00Z"),
+            ],
+        )
 
         # ------------------------------------------------------------------
         # 1. 创建 15 个 2024 v1 存量老租户 (t_leg_001 .. t_leg_015)
@@ -117,36 +139,37 @@ def build_database() -> dict:
             )
 
         # ------------------------------------------------------------------
-        # 2. 创建 113 个 v2 现代租户 (t_cust_001 .. t_cust_113)
+        # 2. 创建 165 个 v2 现代租户 (t_cust_001 .. t_cust_165)，总计 180 家租户
         # ------------------------------------------------------------------
-        special_ids = {19, 34, 51, 67, 78, 83, 92}
+        special_ids = {19, 34, 51, 67, 78, 83, 92, 118, 132, 145, 156}
         partners = [("PTN_EAST", "GOLD"), ("PTN_SOUTH", "SILVER"), ("PTN_NORTH", "PLATINUM")]
 
-        for i in range(1, 114):
+        for i in range(1, 166):
             tid = f"t_cust_{i:03d}"
             cname = SPECIAL_NAMES.get(
                 tid,
-                f"{COMPANY_PREFIXES[i % len(COMPANY_PREFIXES)]}{COMPANY_SUFFIXES[(i * 3) % len(COMPANY_SUFFIXES)]}{i:02d}",
+                f"{COMPANY_PREFIXES[i % len(COMPANY_PREFIXES)]}{COMPANY_SUFFIXES[(i * 3) % len(COMPANY_SUFFIXES)]}{i:03d}",
             )
 
             # 套餐与等级分布
-            if tid in ("t_cust_005", "t_cust_012", "t_cust_015", "t_cust_034", "t_cust_092"):
+            if tid == "t_cust_118":
+                plan_code = "ENTERPRISE"
+            elif tid in ("t_cust_005", "t_cust_012", "t_cust_015", "t_cust_018", "t_cust_034", "t_cust_092", "t_cust_132", "t_cust_145"):
                 plan_code = "PRO"
-            elif tid in ("t_cust_008", "t_cust_019", "t_cust_051", "t_cust_067", "t_cust_078", "t_cust_083"):
+            elif tid in ("t_cust_008", "t_cust_019", "t_cust_051", "t_cust_067", "t_cust_078", "t_cust_083", "t_cust_156"):
                 plan_code = "STARTER"
             else:
                 plan_code = ["STARTER", "STARTER", "PRO", "PRO", "ENTERPRISE"][i % 5]
 
-            tier_level = "VIP" if (plan_code == "ENTERPRISE" or tid in ("t_cust_005", "t_cust_012")) else "STANDARD"
-            if i in special_ids or tid in ("t_cust_005", "t_cust_008", "t_cust_012"):
-                tax_code = "CN_VAT_6_INCLUSIVE"
-            elif tid == "t_cust_015" or i % 17 == 0:
+            tier_level = "VIP" if (plan_code == "ENTERPRISE" or tid in ("t_cust_005", "t_cust_012", "t_cust_118")) else "STANDARD"
+            if tid in ("t_cust_015", "t_cust_118") or (i not in special_ids and i % 17 == 0):
                 tax_code = "CN_VAT_6_EXCLUSIVE"
-            elif i % 29 == 0:
+            elif tid == "t_cust_029" or (i not in special_ids and i % 29 == 0):
                 tax_code = "SG_GST_9_EXCLUSIVE"
             else:
                 tax_code = "CN_VAT_6_INCLUSIVE"
-            p_info = partners[i % 3] if i % 4 == 0 else None
+
+            p_info = partners[i % 3] if (i % 4 == 0 and i not in special_ids) else None
             wh_url = f"https://hooks.customer-{i:03d}.example.com/billing" if i % 5 == 0 else ""
 
             conn.execute(
@@ -170,8 +193,8 @@ def build_database() -> dict:
                     (p_info[0], tid, p_info[1]),
                 )
 
-            # 部分 ENTERPRISE 签有最低保底框架合同
-            if plan_code == "ENTERPRISE" and i % 10 == 4:
+            # 部分 ENTERPRISE 签有最低保底框架合同（注意避开特殊受灾户）
+            if plan_code == "ENTERPRISE" and i not in special_ids and i % 10 == 4:
                 conn.execute(
                     """INSERT INTO enterprise_contracts (id, tenant_id, min_monthly_commit_cents, custom_overage_discount_bps,
                        credit_limit_cents, signed_by, valid_from, valid_until, status)
@@ -192,7 +215,7 @@ def build_database() -> dict:
 
             # 若非特殊受灾户，生成健康一致的钱包、历史账单与当期数据
             if i not in special_ids:
-                init_topup = 300000 if plan_code == "ENTERPRISE" else (180000 if plan_code == "PRO" else 80000)
+                init_topup = 320000 if plan_code == "ENTERPRISE" else (180000 if plan_code == "PRO" else 80000)
                 cash_bal = init_topup
                 promo_bal = 0
                 conn.execute(
@@ -211,16 +234,18 @@ def build_database() -> dict:
                         (tid,),
                     )
 
-                # 生成 2026-09 与 2026-10 已结清账单
+                # 生成 2026-09 与 2026-10 已结清账单（含 INV-202610-0018 销售施压红线单）
                 for m_idx, pk in enumerate(("2026-09", "2026-10")):
-                    if i % 2 != m_idx % 2 and tid not in ("t_cust_005", "t_cust_012", "t_cust_015"):
+                    if i % 2 != m_idx % 2 and tid not in ("t_cust_005", "t_cust_012", "t_cust_015", "t_cust_018"):
                         continue
                     pl = PLANS[plan_code]
                     qty = rng.randint(2000, pl["included_quota"] + 15000)
                     if tid == "t_cust_005" and pk == "2026-10":
-                        qty = 120000  # F11 伪反馈案例：PRO 含5万，用12万，超7万 -> 50000*2 + 20000*1 = 120000
+                        qty = 120000  # F25 伪反馈案例：PRO 含5万，用12万，超7万 -> 50000*2 + 20000*1 = 120000
                     elif tid == "t_cust_012" and pk == "2026-09":
                         qty = 70000  # 实际超 20000 次 -> 应为 40000 分，但历史错收了 60000 分（多收 20000 分）
+                    elif tid == "t_cust_018" and pk == "2026-10":
+                        qty = 30000  # F32 销售总监施压要求直接改表的 10 月已封账账单 INV-202610-0018 (59900分)
                     conn.execute(
                         "INSERT INTO usage_summaries (tenant_id, period_key, plan_code, total_quantity, updated_at) VALUES (?, ?, ?, ?, ?)",
                         (tid, pk, plan_code, qty, f"{pk}-28T23:00:00Z"),
@@ -228,7 +253,6 @@ def build_database() -> dict:
                     ov = compute_tiered_overage_cents(qty, pl["included_quota"], pl["overage_tiers"])
                     base = pl["monthly_fee_cents"]
                     if tid == "t_cust_012" and pk == "2026-09":
-                        # F09 已封账历史多收 200 元差额案例 (INV-202609-0012)
                         inv_id = "INV-202609-0012"
                         ov = 60000
                         tax_c = 0
@@ -241,7 +265,6 @@ def build_database() -> dict:
                         tot = tx["gross_total_cents"]
                         disp = ""
 
-                    # 确保钱包够扣
                     if cash_bal < tot + 50000:
                         extra = 300000
                         cash_bal += extra
@@ -267,7 +290,7 @@ def build_database() -> dict:
                         (tid, -tot, inv_id, f"支付账单 {inv_id}", f"{pk}-29T01:00:00Z"),
                     )
 
-                # 生成 2026-11 当期正常用量与账单（约一半已付，一半未结或仅有用量）
+                # 生成 2026-11 当期正常用量与健康账单
                 qty_11 = rng.randint(1000, PLANS[plan_code]["included_quota"] // 2)
                 conn.execute(
                     "INSERT INTO usage_summaries (tenant_id, period_key, plan_code, total_quantity, updated_at) VALUES (?, '2026-11', ?, ?, '2026-11-13T12:00:00Z')",
@@ -281,9 +304,9 @@ def build_database() -> dict:
                     is_paid = (i % 6 == 0 or tid in ("t_cust_012", "t_cust_015"))
                     if is_paid:
                         if cash_bal < tot_11 + 20000:
-                            cash_bal += 200000
+                            cash_bal += 250000
                             conn.execute(
-                                "INSERT INTO wallet_ledger (tenant_id, entry_type, cash_delta_cents, promo_delta_cents, ref_id, note, created_at) VALUES (?, 'TOPUP', 200000, 0, ?, '11月预存充值', '2026-11-01T08:00:00Z')",
+                                "INSERT INTO wallet_ledger (tenant_id, entry_type, cash_delta_cents, promo_delta_cents, ref_id, note, created_at) VALUES (?, 'TOPUP', 250000, 0, ?, '11月预存充值', '2026-11-01T08:00:00Z')",
                                 (tid, f"top11_{i:03d}"),
                             )
                         cash_bal -= tot_11
@@ -317,7 +340,7 @@ def build_database() -> dict:
                 )
 
         # ------------------------------------------------------------------
-        # 3. 埋入 7 个未结清 OPEN 账期受灾现场（编号与普通租户完全一致，无特殊前缀）
+        # 3. 埋入 11 个未结清 OPEN (2026-11) 账期受灾现场（编号与普通租户完全一致）
         # ------------------------------------------------------------------
 
         # 受灾点 1: t_cust_019 (云图数据) — ENTERPRISE(80k) 降级 STARTER(5k)，被错算 135000 超额费
@@ -334,7 +357,7 @@ def build_database() -> dict:
                'STARTER', 19900, 135000, 0, 0, 154900, 0, 0, 'CENTS', 'OPEN', '', '2026-11-12T12:30:00Z', '2026-11-12T12:30:00Z')"""
         )
 
-        # 受灾点 2: t_cust_083 (瀚海物联) — PRO(42k，未超5万) 降级 STARTER(15k，真超5k=15000分)，却被合算57k按STARTER收了104000分超额！
+        # 受灾点 2: t_cust_083 (瀚海物联) — PRO(42k，未超5万) 降级 STARTER(15k，真超5k=15000分)，却被合算57k按STARTER收了104000分超额
         conn.execute("INSERT INTO wallets (tenant_id, cash_balance_cents, promo_balance_cents, updated_at) VALUES ('t_cust_083', 150000, 0, '2026-11-08T14:00:00Z')")
         conn.execute("INSERT INTO wallet_ledger (tenant_id, entry_type, cash_delta_cents, promo_delta_cents, ref_id, note, created_at) VALUES ('t_cust_083', 'TOPUP', 150000, 0, 'top_083', '公户充值', '2026-11-01T09:30:00Z')")
         conn.execute("INSERT INTO plan_change_history (subscription_id, tenant_id, old_plan_code, new_plan_code, effective_at, proration_cents, reason) VALUES ('sub_cust_083', 't_cust_083', 'PRO', 'STARTER', '2026-11-08T14:00:00Z', 0, 'seasonal_adjust')")
@@ -426,6 +449,80 @@ def build_database() -> dict:
                'STARTER', 19900, 0, 0, 0, 19900, 0, 0, 'CENTS', 'OPEN', '', '2026-11-11T00:00:02Z', '2026-11-11T00:00:02Z')"""
         )
 
+        # 受灾点 8: t_cust_118 (宏途跨境物流) — BUG-08 大额猴子补丁将 >=200000 分的 CN_VAT_6_EXCLUSIVE 账单税额抹零
+        # ENTERPRISE 含 300,000 次，实际用量 320,000 次 -> base=199900, overage=20000, 税前小计=219900
+        # 正常 6% 价外税应为 13194 分，总额应为 233094 分；但被热补丁开成了 tax_cents=0, total_cents=219900
+        conn.execute("INSERT INTO wallets (tenant_id, cash_balance_cents, promo_balance_cents, updated_at) VALUES ('t_cust_118', 500000, 0, '2026-11-01T09:00:00Z')")
+        conn.execute("INSERT INTO wallet_ledger (tenant_id, entry_type, cash_delta_cents, promo_delta_cents, ref_id, note, created_at) VALUES ('t_cust_118', 'TOPUP', 500000, 0, 'top_118', '跨境专户预存', '2026-11-01T09:00:00Z')")
+        conn.execute("INSERT INTO usage_summaries (tenant_id, period_key, plan_code, total_quantity, updated_at) VALUES ('t_cust_118', '2026-11', 'ENTERPRISE', 320000, '2026-11-11T22:00:00Z')")
+        conn.execute(
+            """INSERT INTO invoices (id, tenant_id, period_key, cycle_start, cycle_end, plan_code,
+               base_fee_cents, overage_fee_cents, tax_cents, late_fee_cents, total_cents, paid_cents, refunded_cents,
+               currency_unit, status, dispute_reason, created_at, updated_at)
+               VALUES ('INV-202611-0118', 't_cust_118', '2026-11', '2026-11-01T00:00:00Z', '2026-12-01T00:00:00Z',
+               'ENTERPRISE', 199900, 20000, 0, 0, 219900, 0, 0, 'CENTS', 'OPEN', '', '2026-11-11T22:10:00Z', '2026-11-11T22:10:00Z')"""
+        )
+
+        # 受灾点 9: t_cust_132 (磐石数科) — BUG-11 DLQ 死信重试克隆逻辑未扣除已付 paid_cents=20000，重复全额扣 59900
+        # 钱包充值 30000 + 60000 = 90000；首付 20000 + DLQ 扣 59900 = 79900 -> 现存 cash=10100, inv.paid_cents=79900
+        # 正确状态应为：退还多扣 20000 -> wallet.cash_balance_cents=30100, inv.paid_cents=59900, status='PAID'
+        conn.execute("INSERT INTO wallets (tenant_id, cash_balance_cents, promo_balance_cents, updated_at) VALUES ('t_cust_132', 10100, 0, '2026-11-12T02:15:00Z')")
+        conn.execute("INSERT INTO usage_summaries (tenant_id, period_key, plan_code, total_quantity, updated_at) VALUES ('t_cust_132', '2026-11', 'PRO', 18000, '2026-11-10T12:00:00Z')")
+        conn.execute("INSERT INTO wallet_ledger (tenant_id, entry_type, cash_delta_cents, promo_delta_cents, ref_id, note, created_at) VALUES ('t_cust_132', 'TOPUP', 30000, 0, 'top_132_a', '月初充值', '2026-11-01T09:00:00Z')")
+        conn.execute("INSERT INTO wallet_ledger (tenant_id, entry_type, cash_delta_cents, promo_delta_cents, ref_id, note, created_at) VALUES ('t_cust_132', 'INVOICE_PAY', -20000, 0, 'INV-202611-0132', '首笔部分实付 INV-202611-0132', '2026-11-04T15:00:00Z')")
+        conn.execute("INSERT INTO wallet_ledger (tenant_id, entry_type, cash_delta_cents, promo_delta_cents, ref_id, note, created_at) VALUES ('t_cust_132', 'TOPUP', 60000, 0, 'top_132_b', '补足余额充值', '2026-11-11T18:00:00Z')")
+        conn.execute("INSERT INTO wallet_ledger (tenant_id, entry_type, cash_delta_cents, promo_delta_cents, ref_id, note, created_at) VALUES ('t_cust_132', 'INVOICE_PAY', -59900, 0, 'INV-202611-0132', 'DLQ重试扣款 INV-202611-0132', '2026-11-12T02:15:00Z')")
+        conn.execute(
+            """INSERT INTO invoices (id, tenant_id, period_key, cycle_start, cycle_end, plan_code,
+               base_fee_cents, overage_fee_cents, tax_cents, late_fee_cents, total_cents, paid_cents, refunded_cents,
+               currency_unit, status, dispute_reason, created_at, updated_at)
+               VALUES ('INV-202611-0132', 't_cust_132', '2026-11', '2026-11-01T00:00:00Z', '2026-12-01T00:00:00Z',
+               'PRO', 59900, 0, 0, 0, 59900, 79900, 0, 'CENTS', 'PAID', '', '2026-11-03T10:00:00Z', '2026-11-12T02:15:00Z')"""
+        )
+        conn.execute(
+            "INSERT INTO invoice_payments (id, invoice_id, tenant_id, idempotency_key, cash_paid_cents, promo_paid_cents, total_paid_cents, created_at) VALUES ('pay_11_132_part', 'INV-202611-0132', 't_cust_132', 'part:INV-202611-0132', 20000, 0, 20000, '2026-11-04T15:00:00Z')"
+        )
+        conn.execute(
+            "INSERT INTO invoice_payments (id, invoice_id, tenant_id, idempotency_key, cash_paid_cents, promo_paid_cents, total_paid_cents, created_at) VALUES ('pay_11_132_dlq', 'INV-202611-0132', 't_cust_132', 'dlq:INV-202611-0132:1', 59900, 0, 59900, '2026-11-12T02:15:00Z')"
+        )
+        conn.execute(
+            "INSERT INTO settlement_dlq (invoice_id, tenant_id, error_msg, retry_count, status, created_at, updated_at) VALUES ('INV-202611-0132', 't_cust_132', '钱包余额不足', 1, 'RESOLVED', '2026-11-11T00:06:00Z', '2026-11-12T02:15:00Z')"
+        )
+
+        # 受灾点 10: t_cust_145 (凌云智能) — BUG-12 GET 结算预览副作用把有效赠送金 pg_cust_145 锁死为 LOCKED_PREVIEW
+        conn.execute("INSERT INTO wallets (tenant_id, cash_balance_cents, promo_balance_cents, updated_at) VALUES ('t_cust_145', 80000, 15000, '2026-11-12T16:40:00Z')")
+        conn.execute("INSERT INTO usage_summaries (tenant_id, period_key, plan_code, total_quantity, updated_at) VALUES ('t_cust_145', '2026-11', 'PRO', 12000, '2026-11-12T12:00:00Z')")
+        conn.execute("INSERT INTO wallet_ledger (tenant_id, entry_type, cash_delta_cents, promo_delta_cents, ref_id, note, created_at) VALUES ('t_cust_145', 'TOPUP', 80000, 0, 'top_145', '公户充值', '2026-11-01T10:00:00Z')")
+        conn.execute("INSERT INTO wallet_ledger (tenant_id, entry_type, cash_delta_cents, promo_delta_cents, ref_id, note, created_at) VALUES ('t_cust_145', 'PROMO_GRANT', 0, 15000, 'pg_cust_145', '年度续签礼金结余', '2026-11-01T10:05:00Z')")
+        conn.execute(
+            "INSERT INTO promo_grants (id, tenant_id, initial_cents, remaining_cents, status, expires_at, campaign_code, created_at) VALUES ('pg_cust_145', 't_cust_145', 20000, 15000, 'LOCKED_PREVIEW', '2026-12-31T23:59:59Z', 'ANNUAL_GIFT', '2026-10-15T00:00:00Z')"
+        )
+        conn.execute(
+            """INSERT INTO invoices (id, tenant_id, period_key, cycle_start, cycle_end, plan_code,
+               base_fee_cents, overage_fee_cents, tax_cents, late_fee_cents, total_cents, paid_cents, refunded_cents,
+               currency_unit, status, dispute_reason, created_at, updated_at)
+               VALUES ('INV-202611-0145', 't_cust_145', '2026-11', '2026-11-01T00:00:00Z', '2026-12-01T00:00:00Z',
+               'PRO', 59900, 0, 0, 0, 59900, 0, 0, 'CENTS', 'OPEN', '', '2026-11-10T09:00:00Z', '2026-11-12T16:40:00Z')"""
+        )
+
+        # 受灾点 11: t_cust_156 (远航精密) — BUG-15 核销贷项调账 delta_cents=-15000 时正负号反算，19900 变成 34900（应为 4900）
+        conn.execute("INSERT INTO wallets (tenant_id, cash_balance_cents, promo_balance_cents, updated_at) VALUES ('t_cust_156', 50000, 0, '2026-11-01T09:00:00Z')")
+        conn.execute("INSERT INTO usage_summaries (tenant_id, period_key, plan_code, total_quantity, updated_at) VALUES ('t_cust_156', '2026-11', 'STARTER', 3500, '2026-11-12T12:00:00Z')")
+        conn.execute("INSERT INTO wallet_ledger (tenant_id, entry_type, cash_delta_cents, promo_delta_cents, ref_id, note, created_at) VALUES ('t_cust_156', 'TOPUP', 50000, 0, 'top_156', '公户充值', '2026-11-01T09:00:00Z')")
+        conn.execute(
+            """INSERT INTO invoices (id, tenant_id, period_key, cycle_start, cycle_end, plan_code,
+               base_fee_cents, overage_fee_cents, tax_cents, late_fee_cents, total_cents, paid_cents, refunded_cents,
+               currency_unit, status, dispute_reason, created_at, updated_at)
+               VALUES ('INV-202611-0156', 't_cust_156', '2026-11', '2026-11-01T00:00:00Z', '2026-12-01T00:00:00Z',
+               'STARTER', 19900, 0, 0, 0, 34900, 0, 0, 'CENTS', 'OPEN', '', '2026-11-05T09:00:00Z', '2026-11-13T09:20:00Z')"""
+        )
+        conn.execute(
+            """INSERT INTO billing_adjustments (id, tenant_id, target_period_key, applied_period_key, ref_invoice_id,
+               adjustment_type, delta_cents, reason, status, created_at)
+               VALUES ('adj_202611_0156', 't_cust_156', '2026-10', '2026-11', 'INV-202611-0156',
+               'SLA_CREDIT_MEMO', -15000, '10月SLA故障补偿贷项冲减150元', 'APPLIED', '2026-11-13T09:18:00Z')"""
+        )
+
         # ------------------------------------------------------------------
         # 4. 计算精确的 2026-09 与 2026-10 封账总额，生成 GL 分录与渠道返佣
         # ------------------------------------------------------------------
@@ -449,10 +546,10 @@ def build_database() -> dict:
         calculate_period_partner_commissions(conn, "2026-10")
         calculate_period_partner_commissions(conn, "2026-11")
 
-        # 写入几十条正常缓冲事件（已刷盘历史记录）增加真实度
-        for e_idx in range(1, 320):
-            t_pick = f"t_cust_{(e_idx % 100) + 1:03d}"
-            if t_pick in ("t_cust_019", "t_cust_083"):
+        # 写入 420 条正常已刷盘计量历史记录
+        for e_idx in range(1, 421):
+            t_pick = f"t_cust_{(e_idx % 140) + 1:03d}"
+            if int(t_pick.split("_")[-1]) in special_ids:
                 continue
             conn.execute(
                 """INSERT INTO usage_events (id, tenant_id, metric_code, quantity, plan_code_at_event, occurred_at, period_key, flushed)
@@ -461,24 +558,73 @@ def build_database() -> dict:
             )
 
         # ------------------------------------------------------------------
-        # 5. 写入周边企业级业务表记录（数电发票、催收台账、银行水单、审批流、SLA 赔付）
+        # 5. 写入 64 张 2026-10 数电发票（触发 BUG-13 page_size=50 截断）+ 18 张 2026-11 发票
         # ------------------------------------------------------------------
-        paid_sample = conn.execute(
-            "SELECT id, tenant_id, total_cents, tax_cents FROM invoices WHERE status = 'PAID' AND currency_unit = 'CENTS' ORDER BY id ASC LIMIT 18"
+        oct_paid = conn.execute(
+            """SELECT i.id, i.tenant_id, i.total_cents, i.tax_cents
+               FROM invoices i
+               JOIN tenants t ON t.id = i.tenant_id
+               WHERE i.period_key = '2026-10' AND i.status = 'PAID' AND i.currency_unit = 'CENTS'
+                 AND t.tax_profile_code != 'SG_GST_9_EXCLUSIVE'
+               ORDER BY i.id ASC LIMIT 64"""
         ).fetchall()
-        for f_idx, p_inv in enumerate(paid_sample, start=1):
+        assert len(oct_paid) == 64, f"Expected 64 Oct PAID invoices, got {len(oct_paid)}"
+        oct_fp_gross_sum = 0
+        oct_fp_tax_sum = 0
+        for f_idx, p_inv in enumerate(oct_paid, start=1):
             gross_c = int(p_inv["total_cents"] or 0)
-            tax_c = int(p_inv["tax_cents"] or 0) or int(round((gross_c * 600.0) / 10600.0))
-            net_c = max(0, gross_c - tax_c)
+            net_c = int(round(gross_c / 1.06))
+            tax_c = gross_c - net_c
+            oct_fp_gross_sum += gross_c
+            oct_fp_tax_sum += tax_c
+            conn.execute(
+                """INSERT INTO fapiao_requests (id, tenant_id, invoice_id, fapiao_type, buyer_tax_id, title,
+                   net_amount_cents, tax_amount_cents, gross_amount_cents, sheet_count, status, red_letter_of, created_at)
+                   VALUES (?, ?, ?, 'VAT_SPECIAL_E', ?, ?, ?, ?, ?, 1, 'ISSUED', NULL, ?)""",
+                (
+                    f"FP-202610-{f_idx:04d}",
+                    p_inv["tenant_id"],
+                    p_inv["id"],
+                    f"91310115MA1OCT{f_idx:03d}X",
+                    f"企业抬头_{p_inv['tenant_id']}",
+                    net_c,
+                    tax_c,
+                    gross_c,
+                    f"2026-10-30T10:{f_idx % 60:02d}:00Z",
+                ),
+            )
+
+        nov_paid = conn.execute(
+            """SELECT i.id, i.tenant_id, i.total_cents, i.tax_cents
+               FROM invoices i
+               JOIN tenants t ON t.id = i.tenant_id
+               WHERE i.period_key = '2026-11' AND i.status = 'PAID' AND i.currency_unit = 'CENTS'
+                 AND i.tenant_id NOT IN ('t_cust_051', 't_cust_132')
+                 AND t.tax_profile_code != 'SG_GST_9_EXCLUSIVE'
+               ORDER BY i.id ASC LIMIT 18"""
+        ).fetchall()
+        for f_idx, p_inv in enumerate(nov_paid, start=1):
+            gross_c = int(p_inv["total_cents"] or 0)
+            net_c = int(round(gross_c / 1.06))
+            tax_c = gross_c - net_c
             conn.execute(
                 """INSERT INTO fapiao_requests (id, tenant_id, invoice_id, fapiao_type, buyer_tax_id, title,
                    net_amount_cents, tax_amount_cents, gross_amount_cents, sheet_count, status, red_letter_of, created_at)
                    VALUES (?, ?, ?, 'VAT_SPECIAL_E', ?, ?, ?, ?, ?, 1, 'ISSUED', NULL, '2026-11-05T11:00:00Z')""",
-                (f"fp_2026_{f_idx:04d}", p_inv["tenant_id"], p_inv["id"], f"91310115MA1K3{f_idx:04d}X", f"企业抬头_{p_inv['tenant_id']}", net_c, tax_c, gross_c),
+                (
+                    f"FP-202611-{f_idx:04d}",
+                    p_inv["tenant_id"],
+                    p_inv["id"],
+                    f"91310115MA1NOV{f_idx:03d}X",
+                    f"企业抬头_{p_inv['tenant_id']}",
+                    net_c,
+                    tax_c,
+                    gross_c,
+                ),
             )
 
-        for b_idx in range(1, 15):
-            matched_tid = f"t_cust_{b_idx:03d}" if b_idx <= 12 else None
+        for b_idx in range(1, 21):
+            matched_tid = f"t_cust_{b_idx:03d}" if b_idx <= 16 else None
             st_code = "MATCHED" if matched_tid else "UNMATCHED"
             conn.execute(
                 """INSERT INTO bank_statement_imports (id, bank_serial_no, payer_company_name, amount_cents, tx_date,
@@ -494,6 +640,7 @@ def build_database() -> dict:
             [
                 ("apv_2026_0001", "CONTRACT_DISCOUNT", "t_cust_004", "ctr_004", 220000, "ka_sales_01", "fin_mgr", None, 1, "APPROVED", "年度保底协议例行备案"),
                 ("apv_2026_0002", "LARGE_REFUND_CHECK", "t_cust_020", "INV-202610-0020", 650000, "cs_lead", "fin_mgr", "cfo_dir", 2, "APPROVED", "双签复核归档样例"),
+                ("apv_2026_0003", "CREDIT_ADJUSTMENT", "t_cust_156", "adj_202611_0156", 15000, "cs_lead", "fin_mgr", None, 1, "APPROVED", "远航精密10月SLA故障补偿150元"),
             ],
         )
 
@@ -503,19 +650,27 @@ def build_database() -> dict:
             [
                 ("sla_202610_01", "t_cust_005", 9998, 0, "MEETS_SLA"),
                 ("sla_202610_02", "t_cust_015", 9996, 0, "MEETS_SLA"),
+                ("sla_202610_03", "t_cust_156", 9945, 15000, "CREDITED"),
             ],
         )
 
         t_cnt = conn.execute("SELECT COUNT(*) FROM tenants").fetchone()[0]
         i_cnt = conn.execute("SELECT COUNT(*) FROM invoices").fetchone()[0]
+        fp_cnt = conn.execute("SELECT COUNT(*) FROM fapiao_requests").fetchone()[0]
         l_cnt = conn.execute("SELECT COUNT(*) FROM wallet_ledger").fetchone()[0]
+        inv_1018 = conn.execute("SELECT total_cents, status FROM invoices WHERE id = 'INV-202610-0018'").fetchone()
         conn.commit()
         return {
             "tenants": t_cnt,
             "invoices": i_cnt,
+            "fapiaos": fp_cnt,
+            "oct_fapiao_count": len(oct_paid),
+            "oct_fapiao_gross_sum": oct_fp_gross_sum,
+            "oct_fapiao_tax_sum": oct_fp_tax_sum,
             "ledger_rows": l_cnt,
             "archived_2026_09": arch_09,
             "archived_2026_10": arch_10,
+            "inv_202610_0018_total": int(inv_1018["total_cents"]) if inv_1018 else None,
         }
     finally:
         conn.close()
@@ -525,8 +680,28 @@ def build_logs() -> int:
     rng = random.Random(20261114)
     logs_dir = TEMPLATE_DIR / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
+    for old_log in logs_dir.glob("*.log"):
+        old_log.unlink()
 
     days = [
+        ("2026-11-09", "prod_20261109.log", {
+            "08:00:05": [
+                "2026-11-09 08:00:04 [INFO] yunce.server: bootstrapping yunce-billing-center v2.6.0-ent",
+                "2026-11-09 08:00:05 [WARN] yunce.hotfixes: mounted emergency startup patch hotfix_20261031_tz_and_vip (HIGH_VALUE_BYPASS_CENTS=200000)",
+            ],
+            "14:18:22": [
+                "2026-11-09 14:18:22 [INFO] yunce.subscriptions: change_subscription_plan tenant=t_cust_041 STARTER->PRO runtime_flag(waive_upgrade_proration_promo_window)=True proration_cents=0",
+            ],
+        }),
+        ("2026-11-10", "prod_20261110.log", {
+            "00:12:40": [
+                "2026-11-10 00:12:40 [INFO] yunce.gateway.batch: POST /api/usage/batch node=ap-shanghai-02 occurred_at=2026-11-01T00:15:00+08:00 sliced_period=2026-11 accepted=4",
+                "2026-11-10 00:12:44 [ERROR] yunce.http: unhandled 500 on POST /api/usage/batch err=UNIQUE constraint failed: usage_events_buffer.id",
+            ],
+            "16:05:19": [
+                "2026-11-10 16:05:19 [INFO] yunce.fapiao: issued VAT_SPECIAL_E gross=19900 net=18773 tax=1126 (net+tax=19899)",
+            ],
+        }),
         ("2026-11-11", "prod_20261111.log", {
             "00:00:02": [
                 "2026-11-11 00:00:01 [INFO] yunce.jobs.scheduler: batch trigger as_of=2026-11-11T00:00:00Z",
@@ -546,11 +721,17 @@ def build_logs() -> int:
                 "2026-11-11 14:22:10 [WARN] yunce.webhook: delivery timeout url=https://hooks.customer-025.example.com/billing attempt=1 (retrying in 60s)",
                 "2026-11-11 14:23:11 [INFO] yunce.webhook: delivery succeeded url=https://hooks.customer-025.example.com/billing attempt=2 status=200",
             ],
+            "22:10:03": [
+                "2026-11-11 22:10:03 [INFO] yunce.domain.pricing: calculate_cycle_bill tenant=t_cust_118 plan=ENTERPRISE subtotal=219900 tax_profile=CN_VAT_6_EXCLUSIVE tax_added=0 total=219900",
+            ],
         }),
         ("2026-11-12", "prod_20261112.log", {
             "00:01:00": [
                 "2026-11-12 00:01:00 [INFO] yunce.ledger: expire_promo_grants cutoff=2026-11-12T00:01:00Z grant=pg_cust_067 tenant=t_cust_067 deducted=10000",
                 "2026-11-12 00:05:02 [ERROR] yunce.jobs.settlement: settlement_job: error on inv=INV-202611-0092 err=钱包余额不足",
+            ],
+            "02:15:04": [
+                "2026-11-12 02:15:04 [INFO] yunce.jobs.dlq: _inline_fast_debit_for_dlq inv=INV-202611-0132 tenant=t_cust_132 prior_paid=20000 charged=59900 new_paid=79900",
             ],
             "09:00:03": [
                 "2026-11-12 09:00:02 [DEBUG] yunce.compat.wallet_bridge: compute_refund_bucket_split inv=INV-202611-0051 legacy_fast_cash_mode=True",
@@ -564,15 +745,25 @@ def build_logs() -> int:
             "15:20:33": [
                 "2026-11-12 15:20:33 [INFO] yunce.http: GET /api/invoices/INV-202611-0012 caller_tenant=t_cust_044 status=200 3ms",
             ],
+            "16:40:12": [
+                "2026-11-12 16:40:12 [INFO] yunce.http: GET /api/invoices/INV-202611-0145/settlement-preview tenant=t_cust_145 locked_grant=pg_cust_145 status=200 7ms",
+            ],
             "18:30:02": [
                 "2026-11-12 18:00:04 [INFO] yunce.jobs.metering: metering_flush: tenant=t_cust_083 flushed_qty=15000 target_plan=STARTER",
                 "2026-11-12 18:30:02 [INFO] yunce.domain.pricing: calculate_cycle_bill tenant=t_cust_083 period=2026-11 total_qty=57000 plan=STARTER overage_cents=104000",
             ],
         }),
         ("2026-11-13", "prod_20261113.log", {
+            "09:20:05": [
+                "2026-11-13 09:20:05 [INFO] yunce.domain.reconcile: apply_adjustment_to_open_invoice adj=adj_202611_0156 inv=INV-202611-0156 delta=-15000 old_total=19900 new_total=34900",
+            ],
             "10:42:15": [
                 "2026-11-13 10:42:15 [INFO] yunce.domain.reconcile: recalculate_invoice_for_period inv=INV-202609-0006 period=2026-09 mode=DIRECT_OVERWRITE",
                 "2026-11-13 11:15:20 [INFO] yunce.http: POST /api/admin/jobs/run auth_header=none status=200 51ms",
+            ],
+            "14:10:08": [
+                "2026-11-13 14:10:08 [WARN] yunce.events: event_bus subscribers(invoice.paid)=5842 exceeds soft threshold 256",
+                "2026-11-13 14:55:19 [ERROR] yunce.reports: standalone-audit invalid period_key='2026_11' raised ValueError before sqlite connection close",
             ],
             "16:08:44": [
                 "2026-11-13 16:08:44 [WARN] yunce.http: slow SQL on /api/admin/gl/2026-10 elapsed=284ms",
@@ -585,6 +776,7 @@ def build_logs() -> int:
         ("GET", "/health", 200),
         ("GET", "/api/subscriptions/current?period_key=2026-11", 200),
         ("POST", "/api/usage/events", 201),
+        ("POST", "/api/usage/batch", 200),
         ("GET", "/api/usage/summary?period_key=2026-11", 200),
         ("GET", "/api/invoices", 200),
         ("GET", "/api/wallet", 200),
@@ -611,10 +803,10 @@ def build_logs() -> int:
                 out_lines.extend(anchors[anchor_keys[ak_idx]])
                 ak_idx += 1
 
-            tid_num = rng.randint(1, 113)
-            tid = f"t_cust_{tid_num:03d}" if rng.random() > 0.12 else f"t_leg_{rng.randint(1, 15):03d}"
+            tid_num = rng.randint(1, 165)
+            tid = f"t_cust_{tid_num:03d}" if rng.random() > 0.10 else f"t_leg_{rng.randint(1, 15):03d}"
             method, path, code = rng.choice(endpoints)
-            ms = rng.randint(1, 19)
+            ms = rng.randint(1, 22)
             if path == "/api/usage/events":
                 q = rng.randint(10, 800)
                 out_lines.append(f"{day_str} {hms} [INFO] yunce.http: {method} {path} tenant={tid} qty={q} status={code} {ms}ms")
@@ -629,6 +821,45 @@ def build_logs() -> int:
 
         (logs_dir / fname).write_text("\n".join(out_lines) + "\n", encoding="utf-8")
         total_lines += len(out_lines)
+
+    # 独立批处理日志 cron_settlement.log (500 行)
+    cron_lines = []
+    for idx in range(500):
+        day = 9 + (idx // 100)
+        mm = idx % 60
+        cron_lines.append(
+            f"2026-11-{day:02d} 00:{mm:02d}:10 [INFO] yunce.cron.worker: scan_batch shard={idx % 8} open_checked={rng.randint(4, 19)} dlq_pending={rng.randint(0, 2)}"
+        )
+        if idx == 210:
+            cron_lines.append(
+                "2026-11-11 00:05:18 [WARN] yunce.jobs.settlement: auto-settled disputed invoice despite active dispute_reason (freeze_auto_debit flag not checked in settle_open_invoices)"
+            )
+        if idx == 315:
+            cron_lines.append(
+                "2026-11-12 02:15:04 [WARN] yunce.jobs.dlq: dlq_retry_job charged full total_cents=59900 on partially-paid invoice INV-202611-0132"
+            )
+    (logs_dir / "cron_settlement.log").write_text("\n".join(cron_lines) + "\n", encoding="utf-8")
+    total_lines += len(cron_lines)
+
+    # 独立税控与网关同步日志 tax_erp_gateway.log (500 行)
+    tax_lines = []
+    for idx in range(500):
+        day = 9 + (idx // 100)
+        hh = (idx * 7) % 24
+        mm = (idx * 13) % 60
+        tax_lines.append(
+            f"2026-11-{day:02d} {hh:02d}:{mm:02d}:30 [INFO] yunce.tax.gateway: heartbeat leqi_channel=G4_SH_01 latency={rng.randint(18, 95)}ms"
+        )
+        if idx == 180:
+            tax_lines.append(
+                "2026-11-10 19:20:11 [WARN] yunce.tax.reconcile: query_tax_bureau_issued_page period=2026-10 requested_page_size=500 gateway_cap=50 returned=50 has_more=True next_cursor=50 (caller exited after page 1)"
+            )
+        if idx == 290:
+            tax_lines.append(
+                "2026-11-11 23:58:02 [WARN] yunce.gateway.clock: edge batch timestamp 2026-12-01T00:30:00+08:00 (UTC 2026-11-30T16:30:00Z) bucketed by raw_ts[:7] into 2026-12"
+            )
+    (logs_dir / "tax_erp_gateway.log").write_text("\n".join(tax_lines) + "\n", encoding="utf-8")
+    total_lines += len(tax_lines)
 
     # 生成合法导出样例文件
     exp_dir = TEMPLATE_DIR / "data" / "exports"
