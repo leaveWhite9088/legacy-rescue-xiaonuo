@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+runs/
+sandbox/
+leaderboard/blind/
+leaderboard/blind-maps/
+leaderboard/verdicts/
+leaderboard/reviews.jsonl
+leaderboard/reviews.merged.json

@@ -1,0 +1,76 @@
+{
+  "benchmark_id": "legacy-rescue-xiaonuo",
+  "version": "2.5.0",
+  "title": "遗留救火 · 复杂暗病排障基准（云策企业订阅与阶梯计费账务中心）",
+  "weights": {
+    "A_root_cause_and_ledger": 35.0,
+    "A1_bugs": 25.0,
+    "A2_dirty_data": 10.0,
+    "B_regression_protection": 20.0,
+    "C_surgery_and_tests": 10.0,
+    "C1_surgery_precision": 5.0,
+    "C2_mutation_tests": 5.0,
+    "T_efficiency": 15.0,
+    "D_blind_review": 20.0,
+    "D1_attribution": 8.0,
+    "D2_boundary_discipline": 6.0,
+    "D3_engineering_rationality": 6.0
+  },
+  "timing": {
+    "full_score_minutes": 30.0,
+    "half_life_minutes": 35.0,
+    "max_score": 15.0,
+    "mtime_tolerance_seconds": 5.0
+  },
+  "surgery": {
+    "ideal_changed_lines_min": 55,
+    "ideal_changed_lines_max": 420,
+    "soft_limit_changed_lines": 850,
+    "hard_limit_changed_lines": 1600,
+    "ideal_changed_files_max": 24
+  },
+  "bugs": [
+    {
+      "id": "BUG-01",
+      "name": "跨层事件Topic错配致套餐缓存失配 + 延迟计量与出账未按发生时点套餐分段核算",
+      "points": 4.5,
+      "category": "跨层事件传导 + 缓存/异步分段计费"
+    },
+    {
+      "id": "BUG-02",
+      "name": "钱包混合支付（赠送金+现金）退款洗现漏洞与赠送金到期非幂等双扣",
+      "points": 4.0,
+      "category": "长链路传导 + 双账本资金守恒"
+    },
+    {
+      "id": "BUG-03",
+      "name": "高并发支付双扣/幂等失效与零点续费批处理撞车重复开票",
+      "points": 4.0,
+      "category": "并发竞争与时序幂等"
+    },
+    {
+      "id": "BUG-04",
+      "name": "自动结算批处理吞异常导致账单永久卡死 PENDING_SETTLE 中间态且漏记死信",
+      "points": 3.0,
+      "category": "状态机撕裂 + 异步死信补偿"
+    },
+    {
+      "id": "BUG-05",
+      "name": "账单详情/争议横向越权、管理端漏鉴权、双写路径穿越、非正用量与XSS/堆栈泄露",
+      "points": 3.5,
+      "category": "多维安全与输入边界防护"
+    },
+    {
+      "id": "BUG-06",
+      "name": "2024存量异构老租户（ACTIVE_LEGACY / YUAN_STR / 封顶折扣合同）兼容保护",
+      "points": 2.5,
+      "category": "跷跷板历史契约兼容"
+    },
+    {
+      "id": "BUG-07",
+      "name": "已封账历史账期（CLOSED）重算与延迟计量静默篡改防护及跨期调账路由",
+      "points": 3.5,
+      "category": "财务封账铁律与跨期冲抵"
+    }
+  ]
+}
