@@ -333,6 +333,45 @@ def init_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS sys_runtime_configs (
+            config_key TEXT PRIMARY KEY,
+            config_value TEXT NOT NULL,
+            env_scope TEXT NOT NULL DEFAULT 'PROD',
+            updated_by TEXT NOT NULL DEFAULT 'system',
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS dispute_tickets (
+            id TEXT PRIMARY KEY,
+            invoice_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            freeze_auto_debit INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'OPEN',
+            created_at TEXT NOT NULL,
+            resolved_at TEXT DEFAULT NULL,
+            FOREIGN KEY (invoice_id) REFERENCES invoices(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS credit_notes (
+            id TEXT PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            source_invoice_id TEXT NOT NULL,
+            credit_cents INTEGER NOT NULL,
+            remaining_cents INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'ISSUED',
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS idempotency_records (
+            idem_key TEXT PRIMARY KEY,
+            scope TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            response_json TEXT NOT NULL,
+            status_code INTEGER NOT NULL DEFAULT 200,
+            created_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             actor TEXT NOT NULL,

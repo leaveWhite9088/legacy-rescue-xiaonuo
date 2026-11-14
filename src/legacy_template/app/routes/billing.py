@@ -10,6 +10,8 @@ from app.facades.billing_facade import (
     facade_list_tenant_invoices,
     facade_pay_invoice,
 )
+from app.compat.wallet_bridge import simulate_wallet_deduction_preview
+from app.enterprise_catalog_rules.tariff_strategy_chain import default_tariff_quote_proxy
 from app.infra.db import tx_context
 from app.routes.auth import require_admin, require_tenant
 
@@ -31,6 +33,28 @@ def get_invoice_detail(invoice_id: str):
     try:
         with tx_context(db_path) as conn:
             return jsonify(facade_get_invoice_detail(conn, g.tenant["id"], invoice_id))
+    except LookupError as e:
+        return jsonify({"error": str(e)}), 404
+    except PermissionError as e:
+        return jsonify({"error": str(e)}), 403
+
+
+@bp.route("/<invoice_id>/settlement-preview", methods=["GET"])
+@require_tenant
+def preview_invoice_settlement(invoice_id: str):
+    db_path = current_app.config.get("DB_PATH")
+    try:
+        with tx_context(db_path, immediate=True) as conn:
+            sim = simulate_wallet_deduction_preview(conn, g.tenant["id"], invoice_id)
+            inv = conn.execute("SELECT plan_code FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
+            quote = default_tariff_quote_proxy.evaluate_node(
+                inv["plan_code"] if inv else "STARTER",
+                g.tenant.get("tax_profile_code", "CN_VAT_6_INCLUSIVE"),
+            )
+            quote["last_preview_invoice_id"] = invoice_id
+            quote["base_monthly_cents"] = sim["due_cents"]
+            quote["preview_notes"].append(f"sim:{invoice_id}")
+        return jsonify({"preview": sim, "catalog_quote": quote})
     except LookupError as e:
         return jsonify({"error": str(e)}), 404
     except PermissionError as e:

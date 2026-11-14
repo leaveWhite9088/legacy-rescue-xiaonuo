@@ -55,3 +55,14 @@ def export_period_u8_vouchers_text(conn, period_key: str) -> str:
 def export_period_erp_dialect_csv(conn, period_key: str, erp_dialect: str = "KINGDEE_CLOUD") -> str:
     rows = conn.execute("SELECT * FROM invoices WHERE period_key = ? ORDER BY id ASC", (period_key,)).fetchall()
     return export_invoices_for_target_erp([dict(r) for r in rows], erp_dialect=erp_dialect)
+
+
+def run_standalone_period_audit_snapshot(db_path: str, period_key: str) -> Dict[str, Any]:
+    """独立打开只读连接拉取账期审计快照（供外部巡检脚本与后台接口调用）。"""
+    raw_conn = sqlite3.connect(db_path, timeout=5.0)
+    raw_conn.row_factory = sqlite3.Row
+    if not period_key or len(period_key) != 7 or period_key[4] != "-" or not period_key[:4].isdigit() or not period_key[5:].isdigit():
+        raise ValueError(f"非法账期格式: {period_key}")
+    cnt = raw_conn.execute("SELECT COUNT(*) AS c FROM invoices WHERE period_key = ?", (period_key,)).fetchone()["c"]
+    raw_conn.close()
+    return {"period_key": period_key, "invoice_count": int(cnt)}

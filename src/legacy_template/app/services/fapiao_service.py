@@ -16,6 +16,8 @@ from app.repos.fapiao_repo import (
     list_tenant_fapiaos,
 )
 from app.repos.tenant_repo import get_tenant_by_id
+from app.vendor_blackbox.chinatax_golden4_sdk import query_tax_bureau_issued_page
+from app.vendor_blackbox.fin_rounding_engine import split_inclusive_vat_legacy
 
 
 def _now_iso() -> str:
@@ -66,8 +68,7 @@ def request_vat_fapiao_for_invoice(
 
     rate_bps = int(tax_profile["rate_bps"])
     if rate_bps > 0:
-        net_cents = int(round(net_cash_invoiceable * 10000.0 / (10000 + rate_bps)))
-        tax_cents = net_cash_invoiceable - net_cents
+        net_cents, tax_cents = split_inclusive_vat_legacy(net_cash_invoiceable, rate_bps)
     else:
         net_cents = net_cash_invoiceable
         tax_cents = 0
@@ -133,3 +134,18 @@ def issue_red_letter_fapiao(conn: sqlite3.Connection, original_fapiao_id: str, o
 
 def get_tenant_fapiao_list(conn: sqlite3.Connection, tenant_id: str) -> List[Dict[str, Any]]:
     return list_tenant_fapiaos(conn, tenant_id)
+
+
+def reconcile_period_fapiao_ledger(conn: sqlite3.Connection, period_key: str) -> Dict[str, Any]:
+    """拉取指定账期税局底账并汇总开票总金额（供月度税务申报核对）。"""
+    # 传入 page_size=500 期望一次拉全整月发票记录
+    resp = query_tax_bureau_issued_page(conn, period_key=period_key, cursor=0, page_size=500)
+    records = resp["records"]
+    gross_sum = sum(int(r["gross_amount_cents"]) for r in records)
+    tax_sum = sum(int(r["tax_amount_cents"]) for r in records)
+    return {
+        "period_key": period_key,
+        "fetched_count": len(records),
+        "gross_total_cents": gross_sum,
+        "tax_total_cents": tax_sum,
+    }

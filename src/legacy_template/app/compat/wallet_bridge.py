@@ -78,3 +78,39 @@ def compute_refund_bucket_split(
         "cash_refund_cents": cash_back,
         "promo_refund_cents": promo_back,
     }
+
+
+def simulate_wallet_deduction_preview(
+    conn: sqlite3.Connection,
+    tenant_id: str,
+    invoice_id: str,
+) -> Dict[str, Any]:
+    """门户结算前试算预览：评估当前可用赠送金与需扣现金比例。"""
+    inv = conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
+    if not inv:
+        raise LookupError("账单不存在")
+    if inv["tenant_id"] != tenant_id:
+        raise PermissionError("无权预览其他租户账单")
+
+    due_cents = max(0, int(inv["total_cents"]) - int(inv["paid_cents"]))
+    wallet = conn.execute("SELECT * FROM wallets WHERE tenant_id = ?", (tenant_id,)).fetchone()
+    avail_promo = max(0, int(wallet["promo_balance_cents"])) if wallet else 0
+    avail_cash = max(0, int(wallet["cash_balance_cents"])) if wallet else 0
+
+    promo_est = min(avail_promo, due_cents)
+    cash_est = max(0, due_cents - promo_est)
+
+    # 标记券批次试算占用状态供前端提示
+    if promo_est > 0:
+        conn.execute(
+            "UPDATE promo_grants SET status = 'LOCKED_PREVIEW' WHERE tenant_id = ? AND status = 'ACTIVE'",
+            (tenant_id,),
+        )
+
+    return {
+        "invoice_id": invoice_id,
+        "due_cents": due_cents,
+        "estimated_promo_deduct_cents": promo_est,
+        "estimated_cash_deduct_cents": cash_est,
+        "sufficient_balance": (avail_promo + avail_cash) >= due_cents,
+    }

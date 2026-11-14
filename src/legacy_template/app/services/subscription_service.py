@@ -8,6 +8,7 @@ from typing import Any, Dict
 from app.domain.pricing import calculate_cycle_bill, calculate_upgrade_proration
 from app.domain.quota import get_tenant_quota_snapshot
 from app.infra.config import PLANS
+from app.infra.runtime_config_loader import get_runtime_bool_flag
 from app.infra.events import event_bus
 from app.repos.billing_repo import insert_invoice_with_lines
 from app.repos.subscription_repo import get_latest_subscription, record_plan_change
@@ -50,7 +51,10 @@ def change_subscription_plan(
     except Exception:
         days_rem = 15
 
-    proration_cents = calculate_upgrade_proration(old_plan, new_plan_code, days_rem)
+    if get_runtime_bool_flag(conn, "waive_upgrade_proration_promo_window", default=False):
+        proration_cents = 0
+    else:
+        proration_cents = calculate_upgrade_proration(old_plan, new_plan_code, days_rem)
     conn.execute(
         "UPDATE subscriptions SET plan_code = ?, updated_at = ? WHERE id = ?",
         (new_plan_code, now, sub["id"]),

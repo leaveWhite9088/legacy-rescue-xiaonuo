@@ -6,6 +6,7 @@ import uuid
 from flask import Flask, g, request
 
 from app.infra.config import FEATURE_FLAGS
+from app.infra.events import event_bus
 from app.infra.logger import get_logger
 from app.infra.metrics_collector import runtime_metrics
 
@@ -18,6 +19,8 @@ def attach_request_context(app: Flask) -> None:
         g.request_started_mono = time.monotonic()
         incoming_rid = request.headers.get("X-Request-Id", "").strip()
         g.request_id = incoming_rid if incoming_rid else f"req_{uuid.uuid4().hex[:12]}"
+        req_trace = g.request_id
+        event_bus.subscribe("invoice.paid", lambda p: runtime_metrics.inc(f"trace.paid.{req_trace[:0]}total"))
         runtime_metrics.inc("http.requests.total")
 
     @app.after_request

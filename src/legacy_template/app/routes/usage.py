@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, current_app, g, jsonify, request
 
 from app.facades.metering_facade import facade_get_usage_summary, facade_ingest_usage
+from app.gateway_ingest.batch_ingest_service import ingest_gateway_usage_batch
 from app.infra.db import tx_context
 from app.routes.auth import require_tenant
 
@@ -26,6 +27,20 @@ def ingest_usage_event():
         return jsonify({"error": str(e)}), 400
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 429
+
+
+@bp.route("/batch", methods=["POST"])
+@require_tenant
+def ingest_usage_batch_route():
+    data = request.get_json(silent=True) or {}
+    events = data.get("events")
+    db_path = current_app.config.get("DB_PATH")
+    try:
+        with tx_context(db_path, immediate=True) as conn:
+            res = ingest_gateway_usage_batch(conn, tenant_id=g.tenant["id"], events=events)
+        return jsonify(res), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
 
 @bp.route("/summary", methods=["GET"])

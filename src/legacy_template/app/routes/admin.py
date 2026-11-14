@@ -21,6 +21,7 @@ from app.services.report_export_service import (
     export_ar_aging_csv,
     export_kingdee_voucher_xml,
     export_tenant_legacy_statement_txt,
+    run_standalone_period_audit_snapshot,
 )
 
 bp = Blueprint("admin", __name__, url_prefix="/api/admin")
@@ -71,6 +72,28 @@ def list_adjustments():
         return jsonify(facade_list_adjustments(conn))
 
 
+@bp.route("/adjustments/<adjustment_id>/apply", methods=["POST"])
+@require_admin
+def admin_apply_adjustment(adjustment_id: str):
+    from app.domain.reconcile import apply_adjustment_to_open_invoice
+
+    data = request.get_json(silent=True) or {}
+    target_invoice_id = str(data.get("target_invoice_id") or "").strip()
+    if not target_invoice_id:
+        return jsonify({"error": "缺少 target_invoice_id"}), 400
+    db_path = current_app.config.get("DB_PATH")
+    try:
+        with tx_context(db_path, immediate=True) as conn:
+            res = apply_adjustment_to_open_invoice(conn, adjustment_id, target_invoice_id, actor="admin_api")
+        return jsonify(res)
+    except LookupError as e:
+        return jsonify({"error": str(e)}), 404
+    except PermissionError as e:
+        return jsonify({"error": str(e)}), 403
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
 @bp.route("/gl/<period_key>", methods=["GET"])
 @require_admin
 def get_gl_journal(period_key: str):
@@ -115,6 +138,16 @@ def download_legacy_statement(tenant_id: str, period_key: str):
         return Response(txt, mimetype="text/plain; charset=utf-8")
     except LookupError as e:
         return jsonify({"error": str(e)}), 404
+
+
+@bp.route("/reports/standalone-audit/<period_key>", methods=["GET"])
+@require_admin
+def admin_standalone_audit(period_key: str):
+    db_path = current_app.config.get("DB_PATH")
+    try:
+        return jsonify(run_standalone_period_audit_snapshot(db_path, period_key))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
 
 # 后台批处理与对账导出接口

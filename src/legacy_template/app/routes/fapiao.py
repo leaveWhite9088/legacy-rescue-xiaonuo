@@ -7,6 +7,7 @@ from app.routes.auth import require_admin, require_tenant
 from app.services.fapiao_service import (
     get_tenant_fapiao_list,
     issue_red_letter_fapiao,
+    reconcile_period_fapiao_ledger,
     request_vat_fapiao_for_invoice,
 )
 
@@ -33,7 +34,7 @@ def apply_fapiao():
         return jsonify({"error": "缺少 invoice_id 或 buyer_tax_id"}), 400
     db_path = current_app.config.get("DB_PATH")
     try:
-        with tx_context(db_path, immediate=True) as conn:
+        with tx_context(db_path) as conn:
             res = request_vat_fapiao_for_invoice(
                 conn,
                 tenant_id=g.tenant["id"],
@@ -48,6 +49,14 @@ def apply_fapiao():
         return jsonify({"error": str(e)}), 403
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+
+
+@bp.route("/reconcile/<period_key>", methods=["GET"])
+@require_admin
+def admin_reconcile_fapiao_period(period_key: str):
+    db_path = current_app.config.get("DB_PATH")
+    with tx_context(db_path) as conn:
+        return jsonify(reconcile_period_fapiao_ledger(conn, period_key))
 
 
 @bp.route("/<fapiao_id>/red-letter", methods=["POST"])
