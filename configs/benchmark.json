@@ -1,7 +1,7 @@
 {
   "benchmark_id": "legacy-rescue-xiaonuo",
-  "version": "2.5.0",
-  "title": "遗留救火 · 复杂暗病排障基准（云策企业订阅与阶梯计费账务中心）",
+  "version": "3.0.0",
+  "title": "遗留救火 · 多轮深水区复杂暗病排障基准（云策企业订阅与阶梯计费账务中心 v3.0）",
   "weights": {
     "A_root_cause_and_ledger": 35.0,
     "A1_bugs": 25.0,
@@ -17,60 +17,108 @@
     "D3_engineering_rationality": 6.0
   },
   "timing": {
-    "full_score_minutes": 30.0,
-    "half_life_minutes": 35.0,
+    "full_score_minutes": 45.0,
+    "half_life_minutes": 45.0,
     "max_score": 15.0,
     "mtime_tolerance_seconds": 5.0
   },
   "surgery": {
-    "ideal_changed_lines_min": 55,
-    "ideal_changed_lines_max": 420,
-    "soft_limit_changed_lines": 850,
-    "hard_limit_changed_lines": 1600,
-    "ideal_changed_files_max": 24
+    "ideal_changed_lines_min": 90,
+    "ideal_changed_lines_max": 650,
+    "soft_limit_changed_lines": 1300,
+    "hard_limit_changed_lines": 2500,
+    "ideal_changed_files_max": 36
   },
   "bugs": [
     {
       "id": "BUG-01",
       "name": "跨层事件Topic错配致套餐缓存失配 + 延迟计量与出账未按发生时点套餐分段核算",
-      "points": 4.5,
+      "points": 2.5,
       "category": "跨层事件传导 + 缓存/异步分段计费"
     },
     {
       "id": "BUG-02",
       "name": "钱包混合支付（赠送金+现金）退款洗现漏洞与赠送金到期非幂等双扣",
-      "points": 4.0,
+      "points": 2.0,
       "category": "长链路传导 + 双账本资金守恒"
     },
     {
       "id": "BUG-03",
       "name": "高并发支付双扣/幂等失效与零点续费批处理撞车重复开票",
-      "points": 4.0,
+      "points": 2.0,
       "category": "并发竞争与时序幂等"
     },
     {
       "id": "BUG-04",
       "name": "自动结算批处理吞异常导致账单永久卡死 PENDING_SETTLE 中间态且漏记死信",
-      "points": 3.0,
+      "points": 1.5,
       "category": "状态机撕裂 + 异步死信补偿"
     },
     {
       "id": "BUG-05",
-      "name": "账单详情/争议横向越权、管理端漏鉴权、双写路径穿越、非正用量与XSS/堆栈泄露",
-      "points": 3.5,
-      "category": "多维安全与输入边界防护"
+      "name": "伪造复合条件绕过的账单/争议越权、管理端漏鉴权、双写路径穿越、非正用量与XSS/堆栈泄露",
+      "points": 2.0,
+      "category": "多维安全与复杂条件陷阱防护"
     },
     {
       "id": "BUG-06",
       "name": "2024存量异构老租户（ACTIVE_LEGACY / YUAN_STR / 封顶折扣合同）兼容保护",
-      "points": 2.5,
+      "points": 1.5,
       "category": "跷跷板历史契约兼容"
     },
     {
       "id": "BUG-07",
       "name": "已封账历史账期（CLOSED）重算与延迟计量静默篡改防护及跨期调账路由",
-      "points": 3.5,
+      "points": 2.0,
       "category": "财务封账铁律与跨期冲抵"
+    },
+    {
+      "id": "BUG-08",
+      "name": "启动期紧急猴子补丁（hotfix_20261031_tz_and_vip）静默抹零大额价外增值税",
+      "points": 2.0,
+      "category": "紧急补丁文化 + 运行时猴子补丁篡改"
+    },
+    {
+      "id": "BUG-09",
+      "name": "多源配置漂移与动态开关 bool('false')==True 解析反转致期中升配补差价被豁免",
+      "points": 1.5,
+      "category": "配置漂移 + 隐式类型转换缺陷"
+    },
+    {
+      "id": "BUG-10",
+      "name": "边缘网关批量上报跨时区（+08:00 vs UTC）字符串直切错配账期、零值放行与重试非幂等500",
+      "points": 1.5,
+      "category": "分布式时序/时区归一化 + 批处理幂等"
+    },
+    {
+      "id": "BUG-11",
+      "name": "争议冻结账单仍被夜间自动结算强扣 + 死信重试克隆扣款分支漏减已付金额导致重复超扣",
+      "points": 1.5,
+      "category": "状态机混乱 + 复制粘贴克隆分叉"
+    },
+    {
+      "id": "BUG-12",
+      "name": "只读结算预览GET接口写库误锁赠送金（LOCKED_PREVIEW）及过度设计资费缓存代理可变引用污染",
+      "points": 1.5,
+      "category": "隐蔽写副作用函数 + 过度设计抽象泄漏"
+    },
+    {
+      "id": "BUG-13",
+      "name": "金税四期黑盒SDK单页50条静默截断漏算、含税拆票1分钱尾差失衡及并发重开蓝票",
+      "points": 1.5,
+      "category": "第三方依赖黑盒契约 + 财税分位守恒与并发"
+    },
+    {
+      "id": "BUG-14",
+      "name": "请求上下文中间件每请求向全局event_bus泄漏匿名闭包订阅 + 独立审计报表异常分支SQLite句柄泄漏",
+      "points": 1.0,
+      "category": "内存订阅与数据库连接资源泄漏"
+    },
+    {
+      "id": "BUG-15",
+      "name": "跨期调账核销沿用一代系统减号潜规则反转有向delta_cents致贷项冲减变加收",
+      "points": 1.0,
+      "category": "隐式约定/历史潜规则符号反转"
     }
   ]
 }

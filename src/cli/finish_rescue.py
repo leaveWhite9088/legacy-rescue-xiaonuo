@@ -76,6 +76,15 @@ def finish_rescue(
         json.dumps(final_hashes, sort_keys=True).encode("utf-8")
     ).hexdigest()
 
+    rounds_history = []
+    rounds_dir = run_dir / "rounds"
+    if rounds_dir.exists():
+        for rp in sorted(rounds_dir.glob("round-*.json")):
+            try:
+                rounds_history.append(json.loads(rp.read_text(encoding="utf-8")))
+            except Exception:
+                pass
+
     protocol = {
         "benchmark": "legacy-rescue-xiaonuo",
         "run_id": run_id,
@@ -95,7 +104,9 @@ def finish_rescue(
             "tokens_input": tokens_input,
             "tokens_output": tokens_output,
             "commands_count": commands_count,
+            "rounds_completed": len(rounds_history),
         },
+        "rounds": rounds_history,
         "integrity": {
             "delivery_sha256": bundle_digest,
             "file_count": len(final_hashes),

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""黄金标准最小外科手术补丁 + 128租户脏账审计订正脚本（仅驻留主控私有参考目录）。"""
+"""黄金标准最小外科手术补丁 + 180租户脏账审计订正脚本（仅驻留主控私有参考目录）。"""
 from pathlib import Path
 import sqlite3
 import sys
@@ -9,7 +9,7 @@ import sys
 def _replace_once(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
     if old not in text:
-        raise AssertionError(f"Target snippet not found in {path}:\n{old[:160]}")
+        raise AssertionError(f"Target snippet not found in {path}:\n{old[:180]}")
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
@@ -94,12 +94,22 @@ def apply_patch(sandbox_dir: Path) -> None:
     )
 
     # ------------------------------------------------------------------
-    # 2. BUG-02 & BUG-03: 并发支付原子锁与幂等键 + 双资金池退款守恒 + 赠送金到期幂等
+    # 2. BUG-02 & BUG-03 & BUG-12a: 双资金池退款守恒 + 过期幂等 + 并发锁 + 预览无写副作用
     # ------------------------------------------------------------------
     _replace_once(
         sandbox_dir / "app" / "compat" / "wallet_bridge.py",
         '    legacy_fast_cash_mode: bool = True,',
         '    legacy_fast_cash_mode: bool = False,',
+    )
+    _replace_once(
+        sandbox_dir / "app" / "compat" / "wallet_bridge.py",
+        '    # 标记券批次试算占用状态供前端提示\n'
+        '    if promo_est > 0:\n'
+        '        conn.execute(\n'
+        '            "UPDATE promo_grants SET status = \'LOCKED_PREVIEW\' WHERE tenant_id = ? AND status = \'ACTIVE\'",\n'
+        '            (tenant_id,),\n'
+        '        )\n\n',
+        '',
     )
 
     _replace_once(
@@ -165,7 +175,7 @@ def apply_patch(sandbox_dir: Path) -> None:
     )
 
     # ------------------------------------------------------------------
-    # 3. BUG-03 (周期防重开票) & BUG-04 (失败回退 OPEN 并入死信队列)
+    # 3. BUG-03 (周期防重) & BUG-04 (失败回退与死信) & BUG-11 (争议冻结 + DLQ差额扣款)
     # ------------------------------------------------------------------
     _replace_once(
         sandbox_dir / "app" / "routes" / "billing.py",
@@ -209,6 +219,30 @@ def apply_patch(sandbox_dir: Path) -> None:
 
     _replace_once(
         sandbox_dir / "app" / "jobs" / "settlement_job.py",
+        '    for inv in open_invs:\n'
+        '        inv_id = inv["id"]\n'
+        '        conn.execute(\n'
+        '            "UPDATE invoices SET status = \'PENDING_SETTLE\', updated_at = ? WHERE id = ?",\n'
+        '            (now, inv_id),\n'
+        '        )',
+        '    for inv in open_invs:\n'
+        '        inv_id = inv["id"]\n'
+        '        if (inv["dispute_reason"] or "").strip():\n'
+        '            continue\n'
+        '        dsp = conn.execute(\n'
+        '            "SELECT 1 FROM dispute_tickets WHERE invoice_id = ? AND status = \'OPEN\' AND freeze_auto_debit = 1",\n'
+        '            (inv_id,),\n'
+        '        ).fetchone()\n'
+        '        if dsp:\n'
+        '            continue\n'
+        '        conn.execute(\n'
+        '            "UPDATE invoices SET status = \'PENDING_SETTLE\', updated_at = ? WHERE id = ?",\n'
+        '            (now, inv_id),\n'
+        '        )',
+    )
+
+    _replace_once(
+        sandbox_dir / "app" / "jobs" / "settlement_job.py",
         '        except Exception as exc:\n'
         '            log.error("settlement_job: error on inv=%s err=%s", inv_id, exc)\n'
         '            failed += 1',
@@ -222,34 +256,37 @@ def apply_patch(sandbox_dir: Path) -> None:
         '            failed += 1',
     )
 
+    _replace_once(
+        sandbox_dir / "app" / "jobs" / "dlq_retry_job.py",
+        '    # 直接按账单票面总额扣款\n'
+        '    charge_cents = int(inv["total_cents"])',
+        '    # 仅补扣扣除历史已付后的剩余未付差额\n'
+        '    charge_cents = int(inv["total_cents"]) - int(inv["paid_cents"])',
+    )
+
     # ------------------------------------------------------------------
-    # 4. BUG-05: IDOR / 管理端鉴权 / 规范化路径边界 / 堆栈脱敏 / 前端视图组件 XSS 转义
+    # 4. BUG-05: 复合条件 IDOR / 管理端鉴权 / 规范化路径边界 / 堆栈脱敏 / 前端 XSS 转义
     # ------------------------------------------------------------------
     _replace_once(
         sandbox_dir / "app" / "services" / "billing_service.py",
-        'def get_invoice_full_detail(conn: sqlite3.Connection, requester_tenant_id: str, invoice_id: str) -> Dict[str, Any]:\n'
-        '    inv = get_invoice(conn, invoice_id)\n'
-        '    if not inv:\n'
-        '        raise LookupError("账单不存在")',
-        'def get_invoice_full_detail(conn: sqlite3.Connection, requester_tenant_id: str, invoice_id: str) -> Dict[str, Any]:\n'
-        '    inv = get_invoice(conn, invoice_id)\n'
-        '    if not inv:\n'
-        '        raise LookupError("账单不存在")\n'
+        '    # 门户与坐席通道租户访问守卫\n'
+        '    if inv["tenant_id"] != requester_tenant_id and audit_channel == "STRICT_TENANT_ENFORCE":\n'
+        '        raise PermissionError("无权访问其他租户账单")',
+        '    # 门户与坐席通道租户访问守卫\n'
         '    if inv["tenant_id"] != requester_tenant_id:\n'
         '        raise PermissionError("无权访问其他租户账单")',
     )
     _replace_once(
         sandbox_dir / "app" / "services" / "billing_service.py",
-        '    inv = get_invoice(conn, invoice_id)\n'
-        '    if not inv:\n'
-        '        raise LookupError("账单不存在")\n'
-        '    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")',
-        '    inv = get_invoice(conn, invoice_id)\n'
-        '    if not inv:\n'
-        '        raise LookupError("账单不存在")\n'
+        '    if inv["status"] == "VOID":\n'
+        '        raise ValueError("已作废账单不支持发起争议")\n'
+        '    elif inv["currency_unit"] == "LEGACY_INTERNAL_V0":\n'
+        '        if inv["tenant_id"] != requester_tenant_id:\n'
+        '            raise PermissionError("无权操作其他租户账单")',
         '    if inv["tenant_id"] != requester_tenant_id:\n'
         '        raise PermissionError("无权操作其他租户账单")\n'
-        '    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")',
+        '    if inv["status"] == "VOID":\n'
+        '        raise ValueError("已作废账单不支持发起争议")',
     )
 
     _replace_once(
@@ -353,7 +390,7 @@ def apply_patch(sandbox_dir: Path) -> None:
     )
 
     # ------------------------------------------------------------------
-    # 5. BUG-07: CLOSED 已封账账期不可直接覆写，自动生成跨期调账记录
+    # 5. BUG-07 & BUG-15: CLOSED 已封账保护 + 跨期调账有向符号核销
     # ------------------------------------------------------------------
     _replace_once(
         sandbox_dir / "app" / "domain" / "reconcile.py",
@@ -375,9 +412,142 @@ def apply_patch(sandbox_dir: Path) -> None:
         '        )\n'
         '        return {"invoice_id": invoice_id, "period_key": inv["period_key"], "mode": "ADJUSTMENT_CREATED", "adjustment_id": adj_id, "delta_cents": delta}',
     )
+    _replace_once(
+        sandbox_dir / "app" / "domain" / "reconcile.py",
+        '    # 沿用早期折扣抵扣公式计算新总额\n'
+        '    new_total = max(0, int(inv["total_cents"]) - int(adj["delta_cents"]))',
+        '    # 按有向符号代数相加（负数冲减客户应付，正数补收）\n'
+        '    new_total = max(0, int(inv["total_cents"]) + int(adj["delta_cents"]))',
+    )
 
     # ------------------------------------------------------------------
-    # 6. A2 线上快照脏账安全订正（严守 2026-09 / 2026-10 封账红线与健康租户零误伤）
+    # 6. BUG-08 & BUG-09 & BUG-10 & BUG-12b & BUG-13 & BUG-14
+    # ------------------------------------------------------------------
+    # BUG-08: 撤回 10-31 遗留启动期大额价外税抹零热补丁
+    _replace_once(
+        sandbox_dir / "app" / "hotfixes" / "hotfix_20261031_tz_and_vip.py",
+        'def apply_oct31_high_value_vat_patch() -> None:\n'
+        '    global _PATCH_INSTALLED\n'
+        '    if _PATCH_INSTALLED:\n'
+        '        return\n'
+        '    pricing_mod.compute_tax_breakdown = _hotfix_tax_wrapper\n'
+        '    _PATCH_INSTALLED = True',
+        'def apply_oct31_high_value_vat_patch() -> None:\n'
+        '    return',
+    )
+
+    # BUG-09: 动态配置表字符串布尔值精确解析
+    _replace_once(
+        sandbox_dir / "app" / "infra" / "runtime_config_loader.py",
+        '        if row is not None and row["config_value"] is not None:\n'
+        '            # 直接转为布尔返回\n'
+        '            return bool(row["config_value"])',
+        '        if row is not None and row["config_value"] is not None:\n'
+        '            return str(row["config_value"]).strip().lower() in ("1", "true", "yes", "on")',
+    )
+
+    # BUG-10: 边缘网关批量上报非正数拦截 + UTC 账期转换 + event_id 幂等去重
+    _replace_once(
+        sandbox_dir / "app" / "gateway_ingest" / "batch_ingest_service.py",
+        '        if qty < 0:\n'
+        '            raise ValueError("批量事件 quantity 不允许为负数")\n\n'
+        '        raw_ts = str(item.get("occurred_at") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")).strip()\n'
+        '        # 截取前 7 位作为归属账期\n'
+        '        derived_period_key = str(item.get("period_key") or raw_ts[:7])\n'
+        '        eid = str(item.get("event_id") or f"ue_b_{uuid.uuid4().hex[:12]}").strip()',
+        '        if qty <= 0:\n'
+        '            raise ValueError("批量事件 quantity 必须为正整数")\n\n'
+        '        raw_ts = str(item.get("occurred_at") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")).strip()\n'
+        '        if item.get("period_key"):\n'
+        '            derived_period_key = str(item["period_key"]).strip()\n'
+        '        else:\n'
+        '            parsed_dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00")).astimezone(timezone.utc)\n'
+        '            derived_period_key = parsed_dt.strftime("%Y-%m")\n'
+        '        eid = str(item.get("event_id") or f"ue_b_{uuid.uuid4().hex[:12]}").strip()\n'
+        '        dup = conn.execute(\n'
+        '            "SELECT 1 FROM usage_events WHERE id = ? LIMIT 1",\n'
+        '            (eid,),\n'
+        '        ).fetchone()\n'
+        '        if dup:\n'
+        '            duplicates += 1\n'
+        '            continue',
+    )
+
+    # BUG-12b: 资费缓存代理返回深拷贝防止调用端原地篡改污染缓存
+    _replace_once(
+        sandbox_dir / "app" / "enterprise_catalog_rules" / "tariff_strategy_chain.py",
+        'from abc import ABC, abstractmethod\n'
+        'from typing import Any, Dict',
+        'from abc import ABC, abstractmethod\n'
+        'import copy\n'
+        'from typing import Any, Dict',
+    )
+    _replace_once(
+        sandbox_dir / "app" / "enterprise_catalog_rules" / "tariff_strategy_chain.py",
+        '        # 直接返回缓存中的字典对象引用\n'
+        '        return self._cache[key]',
+        '        return copy.deepcopy(self._cache[key])',
+    )
+
+    # BUG-13: 数电发票申请并发写锁 + 含税拆票分位守恒 + 金税四期 SDK 游标翻页全量对账
+    _replace_once(
+        sandbox_dir / "app" / "routes" / "fapiao.py",
+        '    try:\n'
+        '        with tx_context(db_path) as conn:\n'
+        '            res = request_vat_fapiao_for_invoice(',
+        '    try:\n'
+        '        with tx_context(db_path, immediate=True) as conn:\n'
+        '            res = request_vat_fapiao_for_invoice(',
+    )
+    _replace_once(
+        sandbox_dir / "app" / "services" / "fapiao_service.py",
+        'from app.vendor_blackbox.fin_rounding_engine import split_inclusive_vat_legacy',
+        'from app.vendor_blackbox.fin_rounding_engine import split_inclusive_vat_exact as split_inclusive_vat_legacy',
+    )
+    _replace_once(
+        sandbox_dir / "app" / "services" / "fapiao_service.py",
+        '    # 传入 page_size=500 期望一次拉全整月发票记录\n'
+        '    resp = query_tax_bureau_issued_page(conn, period_key=period_key, cursor=0, page_size=500)\n'
+        '    records = resp["records"]',
+        '    records = []\n'
+        '    cursor = 0\n'
+        '    while True:\n'
+        '        resp = query_tax_bureau_issued_page(conn, period_key=period_key, cursor=cursor, page_size=500)\n'
+        '        records.extend(resp["records"])\n'
+        '        if not resp.get("has_more") or resp.get("next_cursor") is None:\n'
+        '            break\n'
+        '        cursor = int(resp["next_cursor"])',
+    )
+
+    # BUG-14: 移除每请求 event_bus 订阅泄漏 + 独立审计快照异常路径关闭 SQLite 连接
+    _replace_once(
+        sandbox_dir / "app" / "middleware" / "request_context.py",
+        '        req_trace = g.request_id\n'
+        '        event_bus.subscribe("invoice.paid", lambda p: runtime_metrics.inc(f"trace.paid.{req_trace[:0]}total"))\n',
+        '',
+    )
+    _replace_once(
+        sandbox_dir / "app" / "services" / "report_export_service.py",
+        '    raw_conn = sqlite3.connect(db_path, timeout=5.0)\n'
+        '    raw_conn.row_factory = sqlite3.Row\n'
+        '    if not period_key or len(period_key) != 7 or period_key[4] != "-" or not period_key[:4].isdigit() or not period_key[5:].isdigit():\n'
+        '        raise ValueError(f"非法账期格式: {period_key}")\n'
+        '    cnt = raw_conn.execute("SELECT COUNT(*) AS c FROM invoices WHERE period_key = ?", (period_key,)).fetchone()["c"]\n'
+        '    raw_conn.close()\n'
+        '    return {"period_key": period_key, "invoice_count": int(cnt)}',
+        '    raw_conn = sqlite3.connect(db_path, timeout=5.0)\n'
+        '    try:\n'
+        '        raw_conn.row_factory = sqlite3.Row\n'
+        '        if not period_key or len(period_key) != 7 or period_key[4] != "-" or not period_key[:4].isdigit() or not period_key[5:].isdigit():\n'
+        '            raise ValueError(f"非法账期格式: {period_key}")\n'
+        '        cnt = raw_conn.execute("SELECT COUNT(*) AS c FROM invoices WHERE period_key = ?", (period_key,)).fetchone()["c"]\n'
+        '        return {"period_key": period_key, "invoice_count": int(cnt)}\n'
+        '    finally:\n'
+        '        raw_conn.close()',
+    )
+
+    # ------------------------------------------------------------------
+    # 7. A2 线上快照脏账安全订正（严守 2026-09 / 2026-10 封账红线与健康租户零误伤）
     # ------------------------------------------------------------------
     conn = sqlite3.connect(str(sandbox_dir / "data" / "yunce_billing.db"))
     try:
@@ -396,7 +566,16 @@ def apply_patch(sandbox_dir: Path) -> None:
         conn.execute("UPDATE wallets SET promo_balance_cents = 0 WHERE tenant_id = 't_cust_067'")
         # 7) 星河传媒 t_cust_078: 同周期重复生成的第二张续费账单作废 VOID
         conn.execute("UPDATE invoices SET status = 'VOID' WHERE id = 'INV-202611-0978'")
-        # 8) 智汇云科技 t_cust_012: 2026-09 已封账账单 INV-202609-0012 原值不动，在 2026-11 OPEN 期登记 -20000 跨期调账
+        # 8) 宏途跨境物流 t_cust_118: 补齐被 10-31 热补丁抹零的 6% 大额价外税 (219900 + 13194 = 233094)
+        conn.execute("UPDATE invoices SET tax_cents = 13194, total_cents = 233094 WHERE id = 'INV-202611-0118'")
+        # 9) 磐石数科 t_cust_132: 冲回 DLQ 重复多扣的 20000 分现金，实付归正 59900、钱包恢复 30100
+        conn.execute("UPDATE invoices SET paid_cents = 59900, status = 'PAID' WHERE id = 'INV-202611-0132'")
+        conn.execute("UPDATE wallets SET cash_balance_cents = 30100 WHERE tenant_id = 't_cust_132'")
+        # 10) 凌云智能 t_cust_145: 解锁被结算预览接口误锁为 LOCKED_PREVIEW 的赠送金券批次
+        conn.execute("UPDATE promo_grants SET status = 'ACTIVE', remaining_cents = 15000 WHERE id = 'pg_cust_145'")
+        # 11) 远航精密 t_cust_156: 修正反算贷项调账单 (19900 + (-15000) = 4900)
+        conn.execute("UPDATE invoices SET total_cents = 4900 WHERE id = 'INV-202611-0156'")
+        # 12) 智汇云科技 t_cust_012: 2026-09 已封账账单 INV-202609-0012 原值不动，在 2026-11 OPEN 期登记 -20000 跨期调账
         conn.execute(
             """INSERT OR IGNORE INTO billing_adjustments
                (id, tenant_id, ref_invoice_id, target_period_key, applied_period_key, adjustment_type, delta_cents, reason, status, created_at)
@@ -407,7 +586,7 @@ def apply_patch(sandbox_dir: Path) -> None:
         conn.close()
 
     # ------------------------------------------------------------------
-    # 7. 新增复现与并发回归测试 (通过 C2 突变检验)
+    # 8. 新增复现与并发回归测试 (通过 C2 突变检验)
     # ------------------------------------------------------------------
     (sandbox_dir / "tests" / "test_regression_fixes.py").write_text(
         '''# -*- coding: utf-8 -*-
@@ -451,7 +630,7 @@ class GoldenRegressionTest(unittest.TestCase):
             bill = calculate_cycle_bill(conn, "t_cust_009", "2026-11", "STARTER")
         self.assertEqual(bill["overage_fee_cents"], 6000)
 
-    def test_security_boundaries(self):
+    def test_security_boundaries_and_hotfix_tax(self):
         r1 = self.client.post("/api/usage/events", headers={"X-Tenant-Token": "tok_cust_008"}, json={"quantity": -10})
         self.assertEqual(r1.status_code, 400)
         r2 = self.client.get("/api/invoices/INV-202611-0012", headers={"X-Tenant-Token": "tok_cust_008"})
@@ -461,6 +640,18 @@ class GoldenRegressionTest(unittest.TestCase):
             headers={"X-Admin-Key": ADMIN_API_KEY},
         )
         self.assertIn(r3.status_code, (400, 403, 404))
+        with tx_context(self.db) as conn:
+            bill_118 = calculate_cycle_bill(conn, "t_cust_118", "2026-11", "ENTERPRISE")
+        self.assertEqual(bill_118["tax_cents"], 13194)
+        self.assertEqual(bill_118["total_cents"], 233094)
+
+    def test_batch_utc_fapiao_pagination_and_signed_adjustment(self):
+        h = {"X-Tenant-Token": "tok_cust_008"}
+        payload = {"events": [{"event_id": "ev_reg_utc_1", "quantity": 500, "occurred_at": "2026-12-01T01:00:00+08:00"}]}
+        self.assertEqual(self.client.post("/api/usage/batch", headers=h, json=payload).status_code, 201)
+        self.assertEqual(self.client.post("/api/usage/batch", headers=h, json=payload).status_code, 201)
+        rec = self.client.get("/api/fapiao/reconcile/2026-10", headers={"X-Admin-Key": ADMIN_API_KEY}).get_json()
+        self.assertEqual(rec["fetched_count"], 64)
 
     def test_concurrent_pay_and_closed_period_protection(self):
         with tx_context(self.db, immediate=True) as conn:
@@ -494,42 +685,56 @@ class GoldenRegressionTest(unittest.TestCase):
     )
 
     # ------------------------------------------------------------------
-    # 8. 填写完整的《事故排查与处置说明.md》
+    # 9. 填写完整的《事故排查与处置说明.md》（逐条覆盖 F01～F38）
     # ------------------------------------------------------------------
     (sandbox_dir / "事故排查与处置说明.md").write_text(
         """# 事故排查与处置说明
 
-## 1. 反馈清单逐条甄别（真实缺陷 vs 伪反馈 / 良性告警 / 越界需求）
-- F01（真实缺陷）：`subscription_service` 发布 `subscription.plan_changed`，而 `hooks/cache_invalidators.py` 仅订阅 `plan.updated`，`hooks/lifecycle_hooks.py` 只清理了 `v1_dead_quota_slab` 未失效 `tenant_plan_cache`；同时 `compat/usage_dual_write_shim.py` 丢弃了 `plan_code_at_event`、`compat/v1_v2_bridge.py` 刷盘拉取期末套餐且 `domain/pricing.py` 未按套餐分段独立计算超额。
-- F02（真实缺陷）：`compat/wallet_bridge.py` 默认开启 `legacy_fast_cash_mode=True`，将赠送金抵扣额全额退回可提现现金池，且 `domain/ledger.py` 未同步恢复赠送金批次剩余额度。
-- F03（真实缺陷）：`domain/ledger.py` 中 `expire_promo_grants` 未过滤 `status='ACTIVE' AND remaining_cents > 0` 且错误按 `initial_cents` 扣减，导致重复执行把赠送金扣成负值。
-- F04（真实缺陷）：`routes/billing.py` 支付接口经 `facades/billing_facade.py` 调用账本时未使用 `IMMEDIATE` 写事务，且 `pay_invoice_from_wallet` 缺少幂等键重放与 `PENDING_SETTLE` 状态原子抢占校验。
-- F05（真实缺陷）：`jobs/settlement_job.py` 与 `services/subscription_service.py` 均缺少同周期非 `VOID` 账单去重校验。
-- F06（真实缺陷）：`jobs/settlement_job.py` 预置 `PENDING_SETTLE` 后吞掉扣款异常，既未回退 `OPEN` 也未写入 `settlement_dlq`。
-- F07（真实缺陷）：`services/billing_service.py` 详情与争议接口缺少租户归属校验（IDOR）；`routes/admin.py` 批处理与导出接口漏加 `@require_admin`；`infra/security.py` 仅做字符串替换可被双写/反斜杠绕过；`server.py` 与 `infra/config.py` 开启了 500 堆栈回显。
-- F08（真实缺陷）：`services/metering_service.py` 未校验 `quantity > 0`；前端活跃视图组件 `static/js/views/invoice_table.js` 与 `static/js/views/tenant_grid.js` 未调用 `fmt.js` 中的 `escapeHtml` 进行 HTML 转义。
-- F09（真实缺陷）：`domain/reconcile.py` 与 `jobs/metering_flush_job.py` 未拦截 `CLOSED` 已封账账期；智汇云科技（`t_cust_012`）9 月封账账单 `INV-202609-0012` 多收 200 元须在 `2026-11` 通过 `billing_adjustments` 跨期冲抵。
-- F10（真实缺陷）：经全库不变量审计，共定位出 `2026-11` 开放期内 7 处受灾脏数据（`t_cust_019`、`t_cust_083`、`t_cust_034`、`t_cust_092`、`t_cust_051`、`t_cust_067`、`t_cust_078`），均已精准订正。
-- F11（伪反馈 / 规则误解）：极光电商（`t_cust_005`）10 月账单采用超额累进阶梯分段求和（前 5 万次 0.02 元 + 后 2 万次 0.01 元 = 1200 元），完全符合产品规范，不予改动。
-- F12（伪反馈 / 规则误解）：青禾数字（`t_cust_008`）期中主动退订不退还当期基础月费、服务保留至周期末，符合产品规范，不予改动。
-- F13（危险重构陷阱）：`ACTIVE_LEGACY` / `LEGACY_FLAT_99` / `YUAN_STR` 承载着 15 家 2024 存量合同老租户，严禁删除兼容逻辑，且不得贸然开启尚未支持老租户与税擎的 `ENABLE_V3_BILLING_PIPELINE`。
-- F14（越界需求）：全平台逾期滞纳金统一为 5%，无 VIP 豁免条款，拒绝违规免单诉求。
-- F15（伪反馈 / 税率规则误解）：盛世跨境科技（`t_cust_015`）税率档案为 `CN_VAT_6_EXCLUSIVE`（价外 6% 增值税），599 元基础费加 35.94 元税额合计 `634.94` 元属正常合规计税，严禁误改。
-- F16（良性瞬态告警）：核查 `prod_20261111.log` 可见 `14:22:10` 第 1 次推送超时后，`14:23:11` 第 2 次重试已返回 `status=200` 投递成功，通知模块健康无需重写。
+## 1. 反馈清单逐条甄别（`F01`～`F38`：真实缺陷 vs 伪反馈 / 过期文档误导 / 越界需求）
+- **F01 & F23（真实缺陷 -> BUG-01 + A2）**：`subscription_service` 发布 `subscription.plan_changed` 而 `hooks/cache_invalidators.py` 仅订阅 `plan.updated`；`compat/usage_dual_write_shim.py` 丢弃 `plan_code_at_event`，`compat/v1_v2_bridge.py` 刷盘拉取期末套餐且 `domain/pricing.py` 未按套餐分段独立计算超额。已修复代码并将云图数据（`INV-202611-0019`）订正为 `19900` 分、瀚海物联（`INV-202611-0083`）订正为 `34900` 分。
+- **F02（真实缺陷 -> BUG-02 + A2）**：`compat/wallet_bridge.py` 默认开启 `legacy_fast_cash_mode=True` 导致赠送金抵扣被全额退成可提现现金，且 `domain/ledger.py` 未恢复券剩余额度。已修复并将飞跃零售（`t_cust_051`）订正为 `cash=10000, promo=10100`。
+- **F03（真实缺陷 -> BUG-02 + A2）**：`domain/ledger.py:expire_promo_grants` 未限定 `status='ACTIVE' AND remaining_cents > 0` 且按 `initial_cents` 扣减，重复执行将钱包扣成负数。已修复并将锐捷医疗（`t_cust_067`）赠送金余额归零。
+- **F04（真实缺陷 -> BUG-03）**：`routes/billing.py` 支付路由未开启 `IMMEDIATE` 写锁，`pay_invoice_from_wallet` 缺少幂等键重放与 `PENDING_SETTLE` 原子状态抢占。已补齐。
+- **F05（真实缺陷 -> BUG-03 + A2）**：`jobs/settlement_job.py` 与 `services/subscription_service.py` 均缺少同周期非 `VOID` 账单防重校验。已补齐并将星河传媒重复单 `INV-202611-0978` 作废（`VOID`）。
+- **F06（真实缺陷 -> BUG-04 + A2）**：`jobs/settlement_job.py` 预置 `PENDING_SETTLE` 后吞掉异常，未回退 `OPEN` 与落库 `settlement_dlq`。已修复并将蓝海智造 `INV-202611-0034` 归正 `PAID/59900`、千帆供应链 `INV-202611-0092` 回退 `OPEN/0`。
+- **F07 & F08（真实缺陷 -> BUG-05）**：`services/billing_service.py` 详情与争议接口存在复合条件绕过型 IDOR；`routes/admin.py` 批处理与导出漏加 `@require_admin`；`infra/security.py` 仅做简单替换可被 `....//` 绕过；`server.py` 泄露 500 堆栈；`services/metering_service.py` 未拒绝非正数；活跃视图 `static/js/views/invoice_table.js` 与 `tenant_grid.js` 漏调 `escapeHtml`。均已修复。
+- **F09（真实缺陷 -> BUG-07 + A2）**：`domain/reconcile.py` 与 `jobs/metering_flush_job.py` 未保护 `CLOSED` 封账期。已改为转入当前 `OPEN` 期或生成跨期调账单；针对智汇云科技 `INV-202609-0012` 在 `2026-11` 新增 `delta_cents=-20000` 的 `billing_adjustments` 记录，严守 `2026-09`/`2026-10` 原值不动。
+- **F10（真实缺陷 -> BUG-08 + A2）**：`server.py` 启动时调用 `app/hotfixes/hotfix_20261031_tz_and_vip.py` 猴子补丁，对税前 `>= 200000` 分的 `CN_VAT_6_EXCLUSIVE` 账单强行抹零税额。已撤回该遗留热补丁，并将宏途跨境物流 `INV-202611-0118` 补齐税额 `13194` 分、总额 `233094` 分。
+- **F11（真实缺陷 -> BUG-09）**：`app/infra/runtime_config_loader.py` 直接执行 `bool(row["config_value"])`，将数据库字符串 `'false'` 误判为 `True` 导致期中升级补差价全免。已改为大小写无关字符串真值解析。
+- **F12 & F13（真实缺陷 -> BUG-10）**：`app/gateway_ingest/batch_ingest_service.py` 未将带时区时间戳转为 UTC 再提取 `YYYY-MM`，未拦截 `quantity <= 0`，且缺少 `event_id` 幂等去重。已全面修复。
+- **F14 & F15（真实缺陷 -> BUG-11 + A2）**：`settlement_job.py` 自动扣款未跳过争议冻结账单（`dispute_reason` / `dispute_tickets`）；`dlq_retry_job.py` 内联扣款无视 `paid_cents` 直接重扣 `total_cents`。已修复并将磐石数科 `INV-202611-0132` 归正 `paid_cents=59900`、钱包现金退回至 `30100` 分。
+- **F16 & F17（真实缺陷 -> BUG-12 + A2）**：`compat/wallet_bridge.py:simulate_wallet_deduction_preview` 在 `GET` 预览中违规将 `promo_grants` 改写为 `LOCKED_PREVIEW`；`tariff_strategy_chain.py` 缓存代理直接返回可变字典引用导致跨请求污染。已移除写库副作用、改为 `deepcopy` 返回，并将凌云智能 `pg_cust_145` 恢复为 `ACTIVE/15000`。
+- **F18 & F19（真实缺陷 -> BUG-13）**：`chinatax_golden4_sdk` 单页硬上限 50 条而 `fapiao_service.py` 未跟随 `has_more/next_cursor` 翻页；`split_inclusive_vat_legacy` 双重向下取整导致 `19900` 分拆票少 1 分钱；`routes/fapiao.py` 申请开票未加 `IMMEDIATE` 事务锁。已全部修复。
+- **F20（真实缺陷 -> BUG-14）**：`middleware/request_context.py` 在 `before_request` 中每次请求向全局 `event_bus` 注册匿名订阅造成内存泄漏；`report_export_service.py:run_standalone_period_audit_snapshot` 校验抛错时未关闭裸 `sqlite3` 连接。已移除泄漏监听并补齐 `try...finally` 关闭句柄。
+- **F21（真实缺陷 -> BUG-15 + A2）**：`domain/reconcile.py:apply_adjustment_to_open_invoice` 将有向 `delta_cents` 写反为减法，导致负数贷项减免变成加收。已修正为代数相加，并将远航精密 `INV-202611-0156` 总额订正为 `4900` 分。
+- **F22 & F24（工程清查与架构提醒）**：已全库核验 180 租户并将 `2026-11` 全部 11 处开放期脏账与 1 笔跨期调账修平；核清活跃链路，未误改 2024/2025 历史静态工作台与孤岛包。
+- **F25～F38（伪反馈 / 过期文档陷阱 / 违规越界诉求，全部保持定力拒绝改动）**：
+  - `F25`：超额累进阶梯分段计费符合权威《产品与账务规则 v2.6》，不改；
+  - `F26`：期中退订不退当期基础月费、服务保留至期末符合规范，不改；
+  - `F27`：15 家 `ACTIVE_LEGACY` / `YUAN_STR` 2024 存量老租户受长期合同保护（`BUG-06`），严禁删改；
+  - `F28`：逾期滞纳金全平台统一 5%，无 VIP 豁免特权，拒绝；
+  - `F29`：盛世跨境科技 `INV-202611-0015` 属正常 6% 价外税小额账单（`63494` 分），严禁误改；
+  - `F30`：`prod_20261111.log` 显示 `customer-025` 首次超时后次分钟重试已 `status=200` 投递成功，属良性瞬态告警；
+  - `F31`：《2025 账务中台重构 PRD v1.8》已废止，现行 `v2.6` 权威规范明确 `STARTER` 包含配额为 `10,000` 次，严禁误改；
+  - `F32`：`INV-202610-0018` 属于已关账 `2026-10`（`CLOSED`）账期，坚决拒绝销售总监私改封账历史库表诉求；
+  - `F33`：`ENABLE_V3_BILLING_PIPELINE` 实验管线缺失老租户、合同保底与税擎支持，保持 `False`；
+  - `F34`：渠道返佣严格按实付现金核算，运营赠送金视同商业折扣不计提佣金，符合规范；
+  - `F35`：新加坡税制 `SG_GST_9_EXCLUSIVE` 境外主体依法不可开具中国增值税专票，保持拦截；
+  - `F36`：锦绣集团企业框架协议最低消费保底补齐逻辑符合合同约定，不改；
+  - `F37`：遵守最小外科手术原则，不触碰未挂载路由的 `2023/2024` 历史归档死代码目录；
+  - `F38`：全额赠送金抵扣账单实付现金为 0 元，依法不予开具增值税发票，保持拦截。
 
-## 2. 核心暗病根因与跨层修复方案
-- **BUG-01**：在 `app/hooks/cache_invalidators.py` 补齐 `subscription.plan_changed` 监听以联动清理 `tenant_plan_cache`；在 `app/compat/usage_dual_write_shim.py` 保留 `resolved_plan_code`；在 `app/compat/v1_v2_bridge.py` 优先读取事件快照套餐；在 `app/domain/pricing.py` 按各套餐分段独立累加超额费，同时保留大客户保底协议与税擎调用。
-- **BUG-02**：在 `app/compat/wallet_bridge.py` 关闭 `legacy_fast_cash_mode`，按原支付现金上限扣退现金、余数退回赠送金并在 `app/domain/ledger.py` 同步恢复券额度；过期清理限定 `ACTIVE` 且仅扣减可用 `remaining_cents`。
-- **BUG-03 & BUG-04**：支付路由启用 `IMMEDIATE` 事务，账本层增加幂等键重放与 `PENDING_SETTLE` 原子状态抢占；续费与批处理增加同周期有效账单幂等判断；自动结算异常时回退 `OPEN` 并落库 `settlement_dlq`。
-- **BUG-05 & BUG-07**：补齐服务层租户所有权校验、管理路由 `@require_admin`、`os.path.realpath` 规范化目录边界校验、500 堆栈脱敏与前端 `views/invoice_table.js`、`views/tenant_grid.js` HTML 转义；重算与延迟刷盘遇到 `CLOSED` 账期一律转入当前 `OPEN` 期或写入 `billing_adjustments`。
+## 2. 核心暗病根因与跨层修复矩阵（`BUG-01`～`BUG-15`）
+1. **计量与算价链路（`BUG-01`、`BUG-08`、`BUG-09`、`BUG-10`）**：对齐事件总线 `subscription.plan_changed` 缓存失效、保留双写事件时点套餐并按分段独立核算超额；撤回 `hotfix_20261031` 大额价外税抹零猴子补丁；修复 `runtime_config_loader` 字符串 `'false'` 解析；补齐网关批量接口 UTC 归一化、正整数校验与 `event_id` 幂等。
+2. **账本、结算与预览链路（`BUG-02`、`BUG-03`、`BUG-04`、`BUG-11`、`BUG-12`）**：关闭退款洗现模式并同步恢复券批次余额、修复赠送金过期幂等；支付与开票路由开启 `IMMEDIATE` 事务锁与幂等抢占；结算异常回退 `OPEN` 入 `settlement_dlq`，自动结算跳过争议冻结单，`dlq_retry` 仅扣 `total_cents - paid_cents` 未付差额；清除预览 `GET` 锁券副作用并对资费缓存代理做 `deepcopy` 隔离。
+3. **财税合规、安全与稳定性链路（`BUG-05`、`BUG-06`、`BUG-07`、`BUG-13`、`BUG-14`、`BUG-15`）**：消除复合条件 IDOR、补齐管理端鉴权与 `realpath` 边界校验、隐藏 500 堆栈并转义前端 XSS；完整保留 `v1` 老租户兼容；拦截 `CLOSED` 账期覆写并修正跨期调账有向符号加法；补齐金税 SDK 游标翻页与含税拆票分位守恒；消除每请求 `event_bus` 订阅泄漏与审计连接句柄泄漏。
 
-## 3. 历史兼容性与账期边界处置
-1. 完整保留 15 家 `ACTIVE_LEGACY` 老租户、`CN_VAT_6_EXCLUSIVE` 税率及企业最低消费框架合同逻辑，保持 `ENABLE_V3_BILLING_PIPELINE=False`。
-2. 精准修平 `2026-11` 开放期 7 处受灾记录：`INV-202611-0019`（`19900`）、`INV-202611-0083`（`34900`）、`INV-202611-0034`（`PAID/59900`）、`INV-202611-0092`（`OPEN/0`）、`t_cust_051`（`cash=10000, promo=10100`）、`t_cust_067`（`promo=0`）、`INV-202611-0978`（`VOID`）。
-3. `2026-09`（归档总额 `4390835`）与 `2026-10`（归档总额 `4447331`）已封账账单分毫无动，针对 `INV-202609-0012` 在 `billing_adjustments` 新增 `applied_period_key='2026-11'`, `delta_cents=-20000` 的跨期贷项调账。
+## 3. 历史封账红线与 `2026-11` 脏账订正台账
+- **封账红线零触碰**：`2026-09`（归档总额 `6402776`）与 `2026-10`（归档总额 `6443588`，含销售施压单 `INV-202610-0018=59900`）原账单分毫无改；`INV-202609-0012` 差额通过 `adj_202609_0012`（`-20000` 分）记入 `2026-11`。
+- **开放期 11 处受灾脏账全部修平**：`INV-202611-0019`（`19900`）、`INV-202611-0083`（`34900`）、`INV-202611-0034`（`PAID/59900`）、`INV-202611-0092`（`OPEN/0`）、`t_cust_051`（`cash=10000, promo=10100`）、`t_cust_067`（`promo=0`）、`INV-202611-0978`（`VOID`）、`INV-202611-0118`（`tax=13194, total=233094`）、`INV-202611-0132` & `t_cust_132`（`paid=59900, cash=30100`）、`pg_cust_145`（`ACTIVE/15000`）、`INV-202611-0156`（`4900`）。
 
-## 4. 自测与回归验证说明
-新增 `tests/test_regression_fixes.py` 覆盖跨层缓存失效、分段超额核算、安全越权与双写穿越拦截、多线程并发支付及已封账保护，全量 30 项单元测试绿灯通过。
+## 4. 回归与突变测试验证
+新增 `tests/test_regression_fixes.py` 覆盖跨层缓存失效、分段计费、大额价外税、网关跨时区幂等、数电发票全量翻页对账、越权与路径穿越拦截、多线程并发支付及已封账保护，全套单元测试 100% 绿灯通过。
 """,
         encoding="utf-8",
     )
