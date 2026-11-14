@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>[历史归档版] 云策计费系统 v1.4 老客户对账页</title>
+  <link rel="stylesheet" href="/static/css/legacy_overrides.css" />
+</head>
+<body class="legacy-v1-body">
+  <div class="v1-banner">
+    <strong>云策计费系统 2024 经典版 (v1.4)</strong> — 提示：新版租户门户已迁移至 <a href="/" style="color:#fcd34d">/ (v2.6 工作台)</a>
+  </div>
+  <div class="v1-panel">
+    <label>2024 老版 API Token：</label>
+    <input id="v1TokenInput" type="text" />
+    <button onclick="window.YunCeLegacyPortalV1.loadInvoices()">查询历史账单</button>
+  </div>
+  <div class="v1-panel">
+    <table width="100%" cellspacing="0">
+      <thead>
+        <tr><th>单据编号</th><th>账期</th><th>金额</th><th>状态</th><th>备注</th></tr>
+      </thead>
+      <tbody id="v1InvoiceTableBody"></tbody>
+    </table>
+  </div>
+  <script src="/static/js/legacy_portal_v1.js"></script>
+  <script src="/static/js/table_renderer_old.js"></script>
+</body>
+</html>

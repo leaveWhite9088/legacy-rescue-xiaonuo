@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>YunCe 2025 财务关账与司库值班旧版工作台 (Read-Only Archive View)</title>
+  <link rel="stylesheet" href="/static/css/app.css" />
+  <link rel="stylesheet" href="/static/css/legacy_overrides.css" />
+</head>
+<body class="ops-legacy-body">
+  <header class="topbar ops-topbar">
+    <div class="brand">云测智算 · 2025 司库与关账辅助控制台（内部只读保留页）</div>
+    <nav class="nav-links">
+      <a href="/static/portal.html">切换至 V2 租户门户</a>
+      <a href="/static/admin.html">切换至 V2 账务管理后台</a>
+    </nav>
+  </header>
+  <main class="container">
+    <section class="card">
+      <h2>关账红线提示（财务内控第 04 号准则）</h2>
+      <ul class="policy-list">
+        <li>已处于 <code>CLOSED</code> 封账态的会计期间（如 2026-09、2026-10），严禁直接修改历史账单表行金额或归档汇总值。</li>
+        <li>跨封账期的历史错账冲退或补收，必须统一计入当前 <code>OPEN</code> 账期的 <code>billing_adjustments</code> 调账单表。</li>
+        <li>双资金池铁律：退还现金不得超过该单历史实际扣除的现金池总额，赠送金抵扣份额只退回赠送金池。</li>
+        <li>存量 <code>ACTIVE_LEGACY</code> 老客户（含 <code>YUAN_STR</code> 元字符串账单及 <code>LEGACY_FLAT_99</code> 一口价合同）受终身保价协议保护，严禁破坏其解析兼容逻辑。</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,3 @@
+period=2026-10
+status=CLOSED
+verified_by=finance_director
