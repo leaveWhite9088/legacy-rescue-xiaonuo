@@ -98,12 +98,15 @@ def finalize_all(
             obj = score_run(rdir, record=not dry_run)
 
             total = round(obj["objective_score"] + d_info["D_total"], 3)
+            rt_list = obj["timing"].get("round_timings", [])
+            rt_brief = " / ".join(f"R{x['round']}:{x['round_duration_minutes']:.1f}m" for x in rt_list) if rt_list else "-"
             run_summaries.append(
                 {
                     "run_id": ent["run_id"],
                     "pack_id": ent["pack_id"],
                     "case_id": ent["case_id"],
                     "A": obj["A_score"],
+                    "A_raw": obj.get("A_raw_score", obj["A_score"]),
                     "A1": obj["A1_score"],
                     "A2": obj["A2_score"],
                     "B": obj["B_score"],
@@ -119,6 +122,8 @@ def finalize_all(
                     "penalty_factor": obj["penalty_factor"],
                     "severe_flags": obj["severe_flags"],
                     "total": total,
+                    "rounds_completed": obj.get("rounds_completed", len(rt_list)),
+                    "round_timings_brief": rt_brief,
                     "elapsed_minutes": obj["timing"]["elapsed_minutes"],
                     "timing_valid": ent["run_id"] not in overlap_runs,
                     "judge_count": d_info["judge_count"],
@@ -176,15 +181,15 @@ def finalize_all(
                     "",
                     f"### 最终成绩明细 · {v['model_id']}",
                     "",
-                    "| Run ID | 总分(100) | A1(25) | A2(10) | B(20) | C1(5) | C2(5) | T(15) | D1(8) | D2(6) | D3(6) | 评委数 | 耗时(m) | 惩罚系数 |",
-                    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+                    "| Run ID | 总分(100) | A1(25) | A2(10) | B(20) | C1(5) | C2(5) | T(15) | D1(8) | D2(6) | D3(6) | 门禁轮次 | 分段耗时 | 总耗时(m) | 惩罚系数 |",
+                    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: |",
                 ]
             )
             for r in v["runs"]:
                 lines.append(
                     f"| {r['run_id']} | **{r['total']:.2f}** | {r['A1']:.2f} | {r['A2']:.2f} | {r['B']:.2f} | "
                     f"{r['C1']:.2f} | {r['C2']:.2f} | {r['T']:.2f} | {r['D1']:.2f} | {r['D2']:.2f} | {r['D3']:.2f} | "
-                    f"{r['judge_count']} | {r['elapsed_minutes']:.2f} | {r['penalty_factor']} |"
+                    f"{r['rounds_completed']} | {r['round_timings_brief']} | {r['elapsed_minutes']:.2f} | {r['penalty_factor']} |"
                 )
 
         LEADERBOARD_MD.parent.mkdir(parents=True, exist_ok=True)

@@ -41,8 +41,15 @@ def _render_fact_card_md(case_id: str, fact_data: dict, redact_tokens: set[str])
         "",
         "## 一、机器核验摘要（客观探针事实，不含分值）",
         "",
-        "### 1. 暗病根因探针核验",
     ]
+    rtrace = fact_data.get("rounds_trace") or []
+    if rtrace:
+        lines.append("### 0. 预发定性门禁轮次轨迹")
+        for rt in rtrace:
+            dom_str = "；".join(f"{d['domain']}={d['status']}" for d in rt.get("domains", []))
+            lines.append(f"- 第 {rt['round']} 轮（本地单测={'通过' if rt.get('unit_tests_passed') else '失败'}）：{dom_str}")
+        lines.append("")
+    lines.append("### 1. 暗病根因探针核验")
     bugs = fact_data["probe_summary"]["A1_bugs"]
     for bid, binfo in sorted(bugs.items()):
         checks = ", ".join(f"{c[0]}={'PASS' if c[1] else 'FAIL'}" for c in binfo["checks"])

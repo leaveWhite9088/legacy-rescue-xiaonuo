@@ -22,6 +22,14 @@
     "max_score": 15.0,
     "mtime_tolerance_seconds": 5.0
   },
+  "rounds": {
+    "max_rounds": 3,
+    "multipliers": {
+      "1": 1.0,
+      "2": 0.9,
+      "3": 0.8
+    }
+  },
   "surgery": {
     "ideal_changed_lines_min": 90,
     "ideal_changed_lines_max": 650,

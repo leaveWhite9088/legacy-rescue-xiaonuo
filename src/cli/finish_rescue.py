@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""官方收工封包脚本：打下结束时间戳 t1、冻结交付快照并计算校验哈希。"""
+"""官方收工封包脚本：打下结束时间戳 t1、汇总多轮分段耗时、冻结交付快照并计算校验哈希。"""
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -20,7 +20,7 @@ def hash_tree(root_dir: Path) -> dict[str, str]:
         if not p.is_file():
             continue
         rel = p.relative_to(root_dir).as_posix()
-        if rel.startswith(".rescue_session") or "__pycache__" in rel or rel.endswith(".pyc"):
+        if rel.startswith(".rescue_session") or "__pycache__" in rel or rel.endswith(".pyc") or ".pytest_cache" in rel:
             continue
         hashes[rel] = hashlib.sha256(p.read_bytes()).hexdigest()
     return hashes
@@ -85,6 +85,17 @@ def finish_rescue(
             except Exception:
                 pass
 
+    round_timings = [
+        {
+            "round": r["round"],
+            "checkpoint_iso": r["checkpoint_iso"],
+            "round_duration_minutes": r.get("round_duration_minutes", 0.0),
+            "elapsed_minutes": r.get("elapsed_minutes", 0.0),
+            "all_closed": bool(r.get("gatekeeper", {}).get("all_closed", False)),
+        }
+        for r in rounds_history
+    ]
+
     protocol = {
         "benchmark": "legacy-rescue-xiaonuo",
         "run_id": run_id,
@@ -98,6 +109,7 @@ def finish_rescue(
             "end_iso": t1_iso,
             "elapsed_seconds": round(elapsed_sec, 3),
             "elapsed_minutes": round(elapsed_sec / 60.0, 4),
+            "round_timings": round_timings,
             "mtime_anomalies": mtime_anomalies,
         },
         "diagnostics": {
@@ -136,7 +148,11 @@ def main() -> int:
         commands_count=args.commands_count,
     )
     print(f"收工封包完成！run_id={proto['run_id']}")
-    print(f"端到端耗时：{proto['timing']['elapsed_minutes']:.2f} 分钟  交付哈希：{proto['integrity']['delivery_sha256'][:16]}...")
+    print(
+        f"端到端总耗时：{proto['timing']['elapsed_minutes']:.2f} 分钟  "
+        f"门禁轮次：{proto['diagnostics']['rounds_completed']} 轮  "
+        f"交付哈希：{proto['integrity']['delivery_sha256'][:16]}..."
+    )
     return 0
 
 
