@@ -16,9 +16,8 @@
 # 1. 起局：自动分配 <Model>-r1 沙盒并打下不可伪造的起始时间戳 t0
 python src/cli/start_rescue.py --model <你的真实模型名>
 
-# 2. 排障：仅在 sandbox/<run_id>/ 内完成跨层代码修复、11 处开放期脏账订正、新增回归测试与填写《事故排查与处置说明.md》
-#    （可选：若采用三轮递进深挖模式，中间每轮结束可运行 checkpoint_round.py 记录轮次快照而不封包）
-python src/cli/checkpoint_round.py --sandbox sandbox/<run_id> --round 1 --summary "首轮显性链路排查"
+# 2. 沙盒内排障并提交预发定性门禁（最多 3 轮；五大业务域仅回传「已闭环 / 仍有异常未闭环」定性信号，首轮闭环 1.0x、二轮 0.9x、三轮 0.8x）
+python src/cli/checkpoint_round.py --sandbox sandbox/<run_id> --round 1 --summary "首轮全面排查与修复"
 
 # 3. 收工：最后一轮完成后打下结束时间戳 t1、冻结交付快照并记录词元消耗
 python src/cli/finish_rescue.py --sandbox sandbox/<run_id> --tokens-input 36000 --tokens-output 9500 --commands-count 35
