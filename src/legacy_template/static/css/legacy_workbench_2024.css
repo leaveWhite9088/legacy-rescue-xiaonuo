@@ -1,0 +1,109 @@
+/* 2024 旧版财务包干总账工作台样式表 (保留供内网旧书签使用) */
+body.legacy-wb-2024 {
+  margin: 0;
+  padding: 0;
+  font-family: "Microsoft YaHei", SimSun, sans-serif;
+  background-color: #eef1f5;
+  color: #1f2937;
+}
+.wb2024-topbar {
+  background: #1e3a5f;
+  color: #ffffff;
+  padding: 12px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 3px solid #d97706;
+}
+.wb2024-topbar h1 {
+  font-size: 16px;
+  margin: 0;
+}
+.wb2024-deprecation-banner {
+  background: #fffbeb;
+  border-bottom: 1px solid #f59e0b;
+  color: #92400e;
+  padding: 8px 20px;
+  font-size: 13px;
+}
+.wb2024-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: calc(100vh - 90px);
+}
+.wb2024-sidebar {
+  background: #f8fafc;
+  border-right: 1px solid #cbd5e1;
+  padding: 14px;
+}
+.wb2024-sidebar ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.wb2024-sidebar li {
+  padding: 9px 12px;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #334155;
+}
+.wb2024-sidebar li.active {
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+.wb2024-main {
+  padding: 18px 24px;
+}
+.legacy-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.kpi-card {
+  background: #ffffff;
+  border: 1px solid #dbe2ea;
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+.kpi-label {
+  display: block;
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+.legacy-grid-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #ffffff;
+  font-size: 13px;
+}
+.legacy-grid-table th,
+.legacy-grid-table td {
+  border: 1px solid #e2e8f0;
+  padding: 8px 10px;
+  text-align: left;
+}
+.legacy-grid-table th {
+  background: #f1f5f9;
+  color: #334155;
+}
+.legacy-grid-table td.num-col {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.legacy-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+.badge-green { background: #dcfce7; color: #166534; }
+.badge-blue { background: #dbeafe; color: #1e40af; }
+.badge-amber { background: #fef3c7; color: #92400e; }
+.badge-red { background: #fee2e2; color: #991b1b; }
+.badge-purple { background: #f3e8ff; color: #6b21a8; }
+.badge-muted { background: #f1f5f9; color: #64748b; }

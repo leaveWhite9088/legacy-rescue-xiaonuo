@@ -5,6 +5,7 @@ import traceback
 from flask import Flask, jsonify, send_from_directory
 
 from app.hooks import register_all_hooks
+from app.hotfixes import install_emergency_hotfixes
 from app.infra.cache import clear_all_runtime_caches
 from app.infra.config import BASE_DIR, DB_PATH, EXPORT_DIR, FEATURE_FLAGS
 from app.middleware import register_middlewares
@@ -13,6 +14,7 @@ from app.routes.analytics import bp as analytics_bp
 from app.routes.approvals import bp as approvals_bp
 from app.routes.billing import bp as billing_bp
 from app.routes.diagnostics import bp as diagnostics_bp
+from app.routes.enterprise_sim import bp as enterprise_sim_bp
 from app.routes.fapiao import bp as fapiao_bp
 from app.routes.partners import bp as partners_bp
 from app.routes.subscriptions import bp as subscriptions_bp
@@ -28,6 +30,7 @@ def create_app(db_path: str | None = None) -> Flask:
 
     clear_all_runtime_caches()
     register_all_hooks()
+    install_emergency_hotfixes()
     register_middlewares(app)
 
     app.register_blueprint(subscriptions_bp)
@@ -39,6 +42,7 @@ def create_app(db_path: str | None = None) -> Flask:
     app.register_blueprint(approvals_bp)
     app.register_blueprint(analytics_bp)
     app.register_blueprint(diagnostics_bp)
+    app.register_blueprint(enterprise_sim_bp)
     app.register_blueprint(admin_bp)
 
     static_dir = str(BASE_DIR / "static")
@@ -63,6 +67,14 @@ def create_app(db_path: str | None = None) -> Flask:
     @app.route("/legacy-portal")
     def legacy_portal_page():
         return send_from_directory(static_dir, "legacy_index_2024.html")
+
+    @app.route("/finance-workbench-2024")
+    def finance_workbench_2024_page():
+        return send_from_directory(static_dir, "finance_workbench_2024.html")
+
+    @app.route("/sales-ops-2025")
+    def sales_ops_2025_page():
+        return send_from_directory(static_dir, "sales_ops_quote_2025.html")
 
     @app.route("/static/<path:filename>")
     def serve_static(filename: str):

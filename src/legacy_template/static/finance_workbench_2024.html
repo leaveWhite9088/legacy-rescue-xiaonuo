@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>云测计费 2024 财务包干总账工作台 (旧版归档)</title>
+  <link rel="stylesheet" href="/static/css/legacy_workbench_2024.css" />
+</head>
+<body class="legacy-wb-2024">
+  <header class="wb2024-topbar">
+    <h1>云测企业账务系统 · 2024 财务包干与金税盘核销台 (v1.7)</h1>
+    <div>当前环境：生产归档只读兼容视图 | <a href="/admin" style="color:#fcd34d;">跳转新版运维后台 &raquo;</a></div>
+  </header>
+  <div class="wb2024-deprecation-banner">
+    提示：本页面为 2024 一代包干总账旧版工作台，仅供核对 ACTIVE_LEGACY 老客户存量水单使用；线上实时账单与运维管控请访问 <code>/</code>（租户门户）或 <code>/admin</code>（运维后台）。
+  </div>
+  <div class="wb2024-layout">
+    <aside class="wb2024-sidebar">
+      <ul>
+        <li class="active">总账核销大表 (2024)</li>
+        <li>99元包干白名单稽核</li>
+        <li>手工红蓝凭证补录</li>
+        <li>航信金税盘 XML 导出</li>
+        <li>电汇水单勾稽</li>
+        <li>月末封账打勾清单</li>
+      </ul>
+    </aside>
+    <main class="wb2024-main">
+      <div id="wb2024-grid-root">正在初始化 2024 历史总账视图组件...</div>
+    </main>
+  </div>
+  <script src="/static/js/legacy_2024_finance/ledger_grid_2024.js"></script>
+  <script src="/static/js/legacy_2024_finance/baogan_audit_panel.js"></script>
+  <script src="/static/js/legacy_2024_finance/manual_voucher_modal.js"></script>
+  <script src="/static/js/legacy_2024_finance/jinsui_export_wizard.js"></script>
+  <script src="/static/js/legacy_2024_finance/bank_slip_matcher.js"></script>
+  <script src="/static/js/legacy_2024_finance/close_period_checklist_2024.js"></script>
+  <script>
+    if (window.LegacyLedgerGrid2024) {
+      window.LegacyLedgerGrid2024.mountToContainer("wb2024-grid-root", [], {});
+    }
+  </script>
+</body>
+</html>

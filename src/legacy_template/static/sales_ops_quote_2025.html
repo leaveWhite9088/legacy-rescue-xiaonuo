@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>云测 2025 销管报价与渠道返利协同台 (过渡版)</title>
+  <link rel="stylesheet" href="/static/css/legacy_workbench_2024.css" />
+</head>
+<body class="legacy-wb-2024">
+  <header class="wb2024-topbar" style="background:#0f172a;border-bottom-color:#38bdf8;">
+    <h1>云测商业化中台 · 2025 销管报价与 CLM 特批协同台 (v2.4)</h1>
+    <div><a href="/" style="color:#7dd3fc;">返回客户自助门户</a> | <a href="/admin" style="color:#fcd34d;">进入新账务运维台</a></div>
+  </header>
+  <div class="wb2024-deprecation-banner">
+    说明：本视图服务于 2025 销售运营线下报价试算与渠道季度返利模拟，实际在线支付、争议提交与数电开票均已切换至新版门户视图 (<code>static/js/views/</code>)。
+  </div>
+  <div class="wb2024-layout">
+    <aside class="wb2024-sidebar">
+      <ul>
+        <li class="active">阶梯资费报价器</li>
+        <li>CLM 特批签报抽屉</li>
+        <li>总代季度返利试算</li>
+        <li>网关脉冲监控视图</li>
+        <li>争议工单时间轴</li>
+        <li>数电销项比对台</li>
+      </ul>
+    </aside>
+    <main class="wb2024-main">
+      <div id="wb2025-quote-root">正在加载 2025 销管报价组件...</div>
+    </main>
+  </div>
+  <script src="/static/js/legacy_2025_views/quote_calculator_2025.js"></script>
+  <script src="/static/js/legacy_2025_views/clm_approval_drawer.js"></script>
+  <script src="/static/js/legacy_2025_views/channel_rebate_view.js"></script>
+  <script src="/static/js/legacy_2025_views/usage_pulse_chart.js"></script>
+  <script src="/static/js/legacy_2025_views/dispute_timeline_legacy.js"></script>
+  <script src="/static/js/legacy_2025_views/tax_reconcile_panel_2025.js"></script>
+  <script>
+    if (window.QuoteCalculator2025) {
+      window.QuoteCalculator2025.mountToContainer("wb2025-quote-root", [], {});
+    }
+  </script>
+</body>
+</html>
