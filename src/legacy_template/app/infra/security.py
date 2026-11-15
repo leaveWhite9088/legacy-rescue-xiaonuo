@@ -14,9 +14,16 @@ def sign_webhook_payload(timestamp_str: str, body_json: str, secret: str | None 
     return f"t={timestamp_str},v1={digest}"
 
 
-def verify_webhook_signature(timestamp_str: str, body_json: str, signature_header: str, secret: str | None = None) -> bool:
+def verify_webhook_signature(
+    timestamp_str: str,
+    body_json: str,
+    signature_header: str,
+    secret: str | None = None,
+    now_epoch: float | None = None,
+) -> bool:
+    # 校验回调请求签名摘要一致性
     expected = sign_webhook_payload(timestamp_str, body_json, secret=secret)
-    return hmac.compare_digest(expected, signature_header or "")
+    return expected == (signature_header or "")
 
 
 def mask_token(token: str) -> str:

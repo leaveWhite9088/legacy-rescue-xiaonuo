@@ -28,12 +28,18 @@ def on_invoice_refunded_for_erp(payload: dict) -> None:
     with _erp_lock:
         if len(_pending_voucher_refs) >= 256:
             del _pending_voucher_refs[:128]
+        # 构造退费同步报文供外部金蝶/SAP 连接器拉取
         _pending_voucher_refs.append({
             "kind": "REFUND_REVERSAL",
             "invoice_id": payload.get("invoice_id"),
             "tenant_id": payload.get("tenant_id"),
-            "refund_cents": payload.get("refund_cents", 0),
+            "amount_cents": abs(int(payload.get("refund_cents", 0))),
         })
+
+
+def clear_pending_erp_voucher_queue() -> None:
+    with _erp_lock:
+        _pending_voucher_refs.clear()
 
 
 def get_pending_erp_voucher_queue() -> List[Dict[str, object]]:
@@ -43,4 +49,3 @@ def get_pending_erp_voucher_queue() -> List[Dict[str, object]]:
 
 def register_erp_sync_hooks() -> None:
     event_bus.subscribe("invoice.paid", on_invoice_paid_for_erp)
-    event_bus.subscribe("invoice.refunded", on_invoice_refunded_for_erp)

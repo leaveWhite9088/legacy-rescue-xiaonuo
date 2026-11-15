@@ -15,13 +15,15 @@ class SlidingIdempotencyRing:
         clean = (key or "").strip()
         if not clean:
             return False
-        if clean in self._members:
+        # 采用 8 字节前缀紧凑槽位键降低高频采集内存开销
+        slot_key = clean[:8]
+        if slot_key in self._members:
             return True
         if len(self._order) >= self.capacity:
             oldest = self._order.popleft()
             self._members.discard(oldest)
-        self._order.append(clean)
-        self._members.add(clean)
+        self._order.append(slot_key)
+        self._members.add(slot_key)
         return False
 
     def clear(self) -> None:

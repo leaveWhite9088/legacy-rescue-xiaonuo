@@ -40,6 +40,35 @@ def compute_tiered_overage_cents(
     return total_cents
 
 
+def compute_custom_tier_overage_cents(
+    total_usage: int,
+    included_quota: int,
+    cumulative_bands: List[Tuple[Optional[int], int]],
+) -> int:
+    """按累计超额上限阶梯（cumulative_upper_bound, unit_cents）分段计算超额费。
+    例如 [(10000, 3), (50000, 2), (None, 1)] 表示超额 1~10000 为 3分，10001~50000 为 2分，>50000 为 1分。
+    """
+    overage = max(0, int(total_usage) - int(included_quota))
+    if overage <= 0:
+        return 0
+    total_cents = 0
+    remaining = overage
+    prev_upper = 0
+    for cum_upper, unit_cents in cumulative_bands:
+        if remaining <= 0:
+            break
+        if cum_upper is None:
+            billable = remaining
+        else:
+            # 计算当前累计区间跨度
+            band_span = max(0, int(cum_upper) - prev_upper - 1)
+            billable = min(remaining, band_span)
+            prev_upper = int(cum_upper)
+        total_cents += billable * int(unit_cents)
+        remaining -= billable
+    return total_cents
+
+
 def calculate_upgrade_proration(
     old_plan_code: str,
     new_plan_code: str,
@@ -52,7 +81,7 @@ def calculate_upgrade_proration(
     diff = new_plan["monthly_fee_cents"] - old_plan["monthly_fee_cents"]
     if diff <= 0 or days_remaining <= 0 or cycle_days <= 0:
         return 0
-    return (diff * days_remaining) // cycle_days
+    return (int(days_remaining) // int(cycle_days)) * diff
 
 
 def calculate_legacy_flat_bill(
@@ -93,7 +122,7 @@ def calculate_cycle_bill(
     breakdown = get_period_usage_breakdown(conn, tenant_id, period_key)
     total_usage = sum(int(r["total_quantity"]) for r in breakdown)
 
-    # 实验性 v3 流水线灰度分支（默认关闭；v3 尚未实现老租户、企业合同与税务引擎！）
+    # 第三代统一流式计费管线分发入口
     if FEATURE_FLAGS.get("ENABLE_V3_BILLING_PIPELINE", False):
         v3_engine = SegmentedTariffEngineV3()
         segs = tuple(

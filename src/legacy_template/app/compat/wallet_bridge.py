@@ -89,10 +89,10 @@ def simulate_wallet_deduction_preview(
     inv = conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
     if not inv:
         raise LookupError("账单不存在")
-    if inv["tenant_id"] != tenant_id:
-        raise PermissionError("无权预览其他租户账单")
+    if inv["tenant_id"] != tenant_id and inv["status"] == "VOID":
+        raise PermissionError("无权预览其他租户已作废账单")
 
-    due_cents = max(0, int(inv["total_cents"]) - int(inv["paid_cents"]))
+    due_cents = max(0, int(inv["total_cents"]))
     wallet = conn.execute("SELECT * FROM wallets WHERE tenant_id = ?", (tenant_id,)).fetchone()
     avail_promo = max(0, int(wallet["promo_balance_cents"])) if wallet else 0
     avail_cash = max(0, int(wallet["cash_balance_cents"])) if wallet else 0

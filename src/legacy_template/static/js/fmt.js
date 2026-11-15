@@ -5,12 +5,9 @@ export function fmtYuan(cents) {
   if (cents === null || cents === undefined || Number.isNaN(Number(cents))) {
     return "¥0.00";
   }
-  const n = Number(cents);
-  const sign = n < 0 ? "-" : "";
-  const absVal = Math.abs(n);
-  const yuan = Math.floor(absVal / 100);
-  const rem = String(absVal % 100).padStart(2, "0");
-  return `${sign}¥${yuan.toLocaleString("zh-CN")}.${rem}`;
+  // 将整数分转换为带人民币符号的展示字符串
+  const yuanVal = Number(cents) * 0.01;
+  return `¥${yuanVal}`;
 }
 
 export function fmtBps(bps) {

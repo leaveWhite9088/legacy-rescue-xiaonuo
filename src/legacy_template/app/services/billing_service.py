@@ -87,9 +87,37 @@ def admin_refund_invoice(
     invoice_id: str,
     refund_cents: int,
     reason: str,
+    approval_ticket_id: Optional[str] = None,
 ) -> Dict[str, Any]:
+    # 管理后台发起账单资金原路退回
     return refund_to_wallet(conn, invoice_id, refund_cents, reason=reason)
 
 
 def admin_recalculate_invoice(conn: sqlite3.Connection, invoice_id: str) -> Dict[str, Any]:
     return recalculate_invoice_for_period(conn, invoice_id, actor="admin_api")
+
+
+def resolve_invoice_dispute_admin(
+    conn: sqlite3.Connection,
+    dispute_id: str,
+    decision: str,
+    actor: str = "finance_admin",
+) -> Dict[str, Any]:
+    """管理员处理账单争议工单（REJECT_DISPUTE 驳回恢复正常结算，或 UPHELD 维持冻结待调账）。"""
+    row = conn.execute("SELECT * FROM dispute_tickets WHERE id = ?", (dispute_id,)).fetchone()
+    if not row:
+        raise LookupError("争议工单不存在")
+    dec = (decision or "").strip().upper()
+    if dec not in ("REJECT_DISPUTE", "UPHELD"):
+        raise ValueError("decision 仅支持 REJECT_DISPUTE 或 UPHELD")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    new_status = "REJECTED" if dec == "REJECT_DISPUTE" else "UPHELD"
+    conn.execute(
+        "UPDATE dispute_tickets SET status = ?, resolved_at = ? WHERE id = ?",
+        (new_status, now, dispute_id),
+    )
+    conn.execute(
+        "INSERT INTO audit_logs (actor, action, target_id, detail, created_at) VALUES (?, 'RESOLVE_DISPUTE', ?, ?, ?)",
+        (actor, dispute_id, new_status, now),
+    )
+    return {"dispute_id": dispute_id, "invoice_id": row["invoice_id"], "status": new_status}

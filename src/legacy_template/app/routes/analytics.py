@@ -59,6 +59,39 @@ def get_asc606_schedule(period_key: str):
         return jsonify(generate_period_asc606_schedule(conn, period_key))
 
 
+@bp.route("/asc606/schedule", methods=["POST"])
+@require_admin
+def create_asc606_multi_month_schedule():
+    from app.reporting.asc606_revrec_schedule import persist_multi_month_revrec_schedule
+
+    data = request.get_json(silent=True) or {}
+    invoice_id = str(data.get("invoice_id") or "").strip()
+    months = int(data.get("contract_months", 3))
+    db_path = current_app.config.get("DB_PATH")
+    try:
+        with tx_context(db_path, immediate=True) as conn:
+            return jsonify(persist_multi_month_revrec_schedule(conn, invoice_id, months))
+    except LookupError as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@bp.route("/asc606/rebaseline", methods=["POST"])
+@require_admin
+def rebaseline_asc606_schedule():
+    from app.revenue_accounting_ifrs15.contract_modification_accounting import rebaseline_deferred_schedule_on_upgrade
+
+    data = request.get_json(silent=True) or {}
+    invoice_id = str(data.get("invoice_id") or "").strip()
+    added_net = int(data.get("added_net_cents", 0))
+    mod_period = str(data.get("modification_period_key") or "2026-11")
+    db_path = current_app.config.get("DB_PATH")
+    try:
+        with tx_context(db_path, immediate=True) as conn:
+            return jsonify(rebaseline_deferred_schedule_on_upgrade(conn, invoice_id, added_net, mod_period))
+    except LookupError as e:
+        return jsonify({"error": str(e)}), 404
+
+
 @bp.route("/vat-workpaper/<period_key>", methods=["GET"])
 @require_admin
 def get_vat_workpaper(period_key: str):

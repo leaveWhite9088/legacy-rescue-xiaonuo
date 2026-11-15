@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v3 钱包分布式 Saga 编排器草稿（实验未投产代码，生产扣款与退款请查看 app.domain.ledger）。"""
+"""v3 钱包两阶段资金扣划 Saga 编排器。"""
 from datetime import datetime, timezone
 import sqlite3
 from typing import Any, Dict

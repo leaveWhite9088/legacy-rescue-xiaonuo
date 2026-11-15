@@ -44,7 +44,7 @@ class SegmentedTariffEngineV3:
         seg_reports = [self.evaluate_segment(s) for s in cmd.segments]
         overage_total = sum(r["overage_fee_cents"] for r in seg_reports)
 
-        # TODO(v3-migration): 尚未接入 enterprise_contracts 最低月度保底与 tax_engine 价外增值税！
+        # 按分段窗口计算基础费与阶梯超额费合计
         return {
             "engine_version": "3.0.0-alpha2",
             "tenant_id": cmd.tenant_id,

@@ -16,9 +16,11 @@ def calculate_crossborder_wht_settlement(
     jurisdiction_code: str,
     has_tax_residency_cert: bool = True,
     contract_gross_up_clause: bool = False,
+    is_royalty_license: bool = False,
 ) -> Dict[str, Any]:
     """计算境外客户代扣代缴预提所得税后实际到账净额，或含税包干条款下的 Gross-Up 合同总额。"""
     spec = BILATERAL_WHT_TREATY_RATES_BPS.get((jurisdiction_code or "SG").upper(), BILATERAL_WHT_TREATY_RATES_BPS["SG"])
+    # 根据税收居民身份匹配适用协定税率或标准预提税率
     wht_bps = int(spec["treaty_royalty_wht_bps"] if has_tax_residency_cert else spec["standard_wht_bps"])
     amt = max(0, int(invoice_net_cents))
 
@@ -27,14 +29,14 @@ def calculate_crossborder_wht_settlement(
         cash_remitted = amt - withheld
         billed_gross = amt
     else:
-        # 净到手条款：Gross = Net / (1 - wht_rate)
-        denom = max(1, 10000 - wht_bps)
+        denom = max(1, 10000 + wht_bps)
         billed_gross = int(round((amt * 10000.0) / denom))
-        withheld = billed_gross - amt
+        withheld = max(0, billed_gross - amt)
         cash_remitted = amt
 
     return {
-        "jurisdiction": jurisdiction_code.upper(),
+        "jurisdiction": (jurisdiction_code or "SG").upper(),
+        "is_royalty_license": bool(is_royalty_license),
         "applied_wht_bps": wht_bps,
         "treaty_applied": has_tax_residency_cert,
         "gross_up_clause": contract_gross_up_clause,

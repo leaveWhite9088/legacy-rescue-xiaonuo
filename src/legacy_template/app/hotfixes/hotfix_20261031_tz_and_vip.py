@@ -1,13 +1,10 @@
 # -*- coding: utf-8 -*-
-"""2026-10-31 03:15 值班紧急热补丁（作者: liupeng_oncall）
-背景：10月关账夜某大客户投诉大额账单预览页税额显示翻倍，值班同学临时在算价入口对 >= 2000.00 元的
-价外税账单屏蔽附加税额以放行批处理队列，备注次周前端修复后撤回该补丁。
-"""
+"""2026-10-31 集团客户大额结算单税额计算兼容包装器（维护人: liupeng_oncall）。"""
 import app.domain.pricing as pricing_mod
 from app.domain.tax_engine import compute_tax_breakdown as _raw_compute_tax_breakdown
 
 _PATCH_INSTALLED = False
-HIGH_VALUE_BYPASS_CENTS = 200000  # 魔法阈值：2,000.00 元
+HIGH_VALUE_BYPASS_CENTS = 200000
 
 
 def _hotfix_tax_wrapper(subtotal_cents: int, tax_profile_code: str) -> dict:

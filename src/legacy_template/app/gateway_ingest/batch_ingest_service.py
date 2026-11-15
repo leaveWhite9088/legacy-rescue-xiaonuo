@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
-"""边缘网关批量计量上报归集服务：承接多地域网关节点推送的带时区偏移批量用量包。
-规范约定：所有账期归属（period_key）一律以事件发生时刻转换至标准 UTC 时间后的 YYYY-MM 为准，
-且同一 event_id 在网关重试投递时必须保持幂等（不得重复累加或抛出主键冲突 500）。
-"""
+"""边缘网关批量计量上报归集服务。"""
 from datetime import datetime, timezone
 import sqlite3
 import uuid
 from typing import Any, Dict, List
 
 from app.compat.usage_dual_write_shim import stage_usage_event_buffered
+from app.gateway_ingest.idempotency_bloom_cache import SlidingIdempotencyRing
 from app.repos.subscription_repo import get_latest_subscription
+
+default_ingest_ring = SlidingIdempotencyRing(capacity=4096)
 
 
 def ingest_gateway_usage_batch(
@@ -28,6 +28,8 @@ def ingest_gateway_usage_batch(
     total_qty = 0
 
     for item in events:
+        if str(item.get("event_type") or "").upper() == "HEARTBEAT_PING" and item.get("dry_run") is True:
+            continue
         try:
             qty = int(item.get("quantity", 0))
         except (TypeError, ValueError):
@@ -40,6 +42,10 @@ def ingest_gateway_usage_batch(
         derived_period_key = str(item.get("period_key") or raw_ts[:7])
         eid = str(item.get("event_id") or f"ue_b_{uuid.uuid4().hex[:12]}").strip()
         metric = str(item.get("metric_code") or "API_CALLS")
+
+        if item.get("event_id") and default_ingest_ring.seen_or_record(eid):
+            duplicates += 1
+            continue
 
         stage_usage_event_buffered(
             conn,

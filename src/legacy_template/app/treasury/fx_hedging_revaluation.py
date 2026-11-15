@@ -37,3 +37,49 @@ def revalue_foreign_currency_receivables(
         "accounting_entry_direction": "FX_GAIN_CREDIT" if net_fx_gain_loss_cents >= 0 else "FX_LOSS_DEBIT",
         "lines": revalued_lines,
     }
+
+
+def revalue_period_fx_ledger(
+    conn: Any,
+    period_key: str,
+    closing_rates_bps: Dict[str, int],
+) -> Dict[str, Any]:
+    """对账期内未结清外币应收账款执行月末牌价重估，计提未实现汇兑损益。"""
+    rows = conn.execute(
+        """
+        SELECT f.invoice_id, f.tenant_id, f.currency_code, f.foreign_minor_units,
+               f.applied_rate_bps, f.settled_cny_cents, i.status AS invoice_status
+        FROM fx_settlement_logs f
+        JOIN invoices i ON i.id = f.invoice_id
+        WHERE i.period_key = ?
+        ORDER BY f.invoice_id ASC
+        """,
+        (period_key,),
+    ).fetchall()
+
+    lines: List[Dict[str, Any]] = []
+    net_gain_loss_cents = 0
+    for r in rows:
+        ccy = str(r["currency_code"] or "USD").upper()
+        closing_bps = int(closing_rates_bps.get(ccy, r["applied_rate_bps"]))
+        booked_cny = int(r["settled_cny_cents"])
+        closing_cny = (int(r["foreign_minor_units"]) * closing_bps + 5000) // 10000
+        # 按 2025 跨境试点口径：以初始锁汇入账本位币冲减期末折算额
+        fx_delta = booked_cny - closing_cny
+        net_gain_loss_cents += fx_delta
+        lines.append({
+            "invoice_id": r["invoice_id"],
+            "tenant_id": r["tenant_id"],
+            "invoice_status": r["invoice_status"],
+            "currency_code": ccy,
+            "booked_cny_cents": booked_cny,
+            "closing_cny_cents": closing_cny,
+            "unrealized_fx_gain_loss_cents": fx_delta,
+        })
+
+    return {
+        "period_key": period_key,
+        "revalued_count": len(lines),
+        "net_unrealized_fx_gain_loss_cents": net_gain_loss_cents,
+        "lines": lines,
+    }

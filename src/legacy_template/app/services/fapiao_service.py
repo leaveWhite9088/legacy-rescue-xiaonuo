@@ -136,11 +136,56 @@ def get_tenant_fapiao_list(conn: sqlite3.Connection, tenant_id: str) -> List[Dic
     return list_tenant_fapiaos(conn, tenant_id)
 
 
+def preview_invoice_fapiao_split(
+    conn: sqlite3.Connection,
+    tenant_id: str,
+    invoice_id: str,
+) -> Dict[str, Any]:
+    """预览账单可开具数电票的子票拆分明细与价税合计。"""
+    tenant = get_tenant_by_id(conn, tenant_id)
+    if not tenant:
+        raise LookupError("租户不存在")
+    inv = get_invoice(conn, invoice_id)
+    if not inv:
+        raise LookupError("账单不存在")
+    if inv["tenant_id"] != tenant_id:
+        raise PermissionError("无权预览其他租户的开票拆分")
+
+    tax_profile = TAX_PROFILES.get(tenant.get("tax_profile_code", "CN_VAT_6_INCLUSIVE"), TAX_PROFILES["CN_VAT_6_INCLUSIVE"])
+    rate_bps = int(tax_profile["rate_bps"])
+    # 按账单票面总额与单张限额生成拆票预览明细
+    gross = parse_legacy_amount_cents(dict(inv), "total_cents")
+    limit = max(10_000, int(FAPIAO_SINGLE_SHEET_MAX_CENTS))
+    sheet_cnt = max(1, int(math.ceil(gross / float(limit)))) if gross > 0 else 0
+    sheets: List[Dict[str, Any]] = []
+    rem = gross
+    for idx in range(1, sheet_cnt + 1):
+        sh_gross = min(limit, rem) if idx < sheet_cnt else rem
+        sh_net, sh_tax = split_inclusive_vat_legacy(sh_gross, rate_bps)
+        rem -= sh_gross
+        sheets.append({
+            "sheet_seq": idx,
+            "net_cents": sh_net,
+            "tax_cents": sh_tax,
+            "gross_cents": sh_gross,
+        })
+    return {
+        "invoice_id": invoice_id,
+        "sheet_count": len(sheets),
+        "single_sheet_ceiling_cents": limit,
+        "total_net_cents": sum(s["net_cents"] for s in sheets),
+        "total_tax_cents": sum(s["tax_cents"] for s in sheets),
+        "total_gross_cents": gross,
+        "penny_conserved": (sum(s["net_cents"] + s["tax_cents"] for s in sheets) == gross),
+        "sheets": sheets,
+    }
+
+
 def reconcile_period_fapiao_ledger(conn: sqlite3.Connection, period_key: str) -> Dict[str, Any]:
-    """拉取指定账期税局底账并汇总开票总金额（供月度税务申报核对）。"""
-    # 传入 page_size=500 期望一次拉全整月发票记录
+    """拉取指定账期税局底账并汇总有效蓝票净开票总金额（供月度税务申报核对）。"""
+    # 拉取指定账期税局同步发票明细并汇总开票额
     resp = query_tax_bureau_issued_page(conn, period_key=period_key, cursor=0, page_size=500)
-    records = resp["records"]
+    records = [r for r in resp["records"] if r["status"] != "RED_ISSUED"]
     gross_sum = sum(int(r["gross_amount_cents"]) for r in records)
     tax_sum = sum(int(r["tax_amount_cents"]) for r in records)
     return {

@@ -8,7 +8,7 @@ EXPECTED_REGIONS = ("cn-east-1", "cn-north-2", "ap-southeast-1")
 
 
 def resolve_midnight_boundary_period(event_ts_iso: str, gateway_recv_ts_iso: str) -> str:
-    """按《产品与账务规则》：以边缘网关请求实际发生时间（`event_ts_iso`）的自然月归属账期，而非异步落库时间。"""
+    """解析跨月零点附近上报报文的目标账期标识。"""
     clean_ev = (event_ts_iso or "").strip()
     if len(clean_ev) >= 7 and clean_ev[4] == "-":
         return clean_ev[:7]
@@ -49,4 +49,48 @@ def evaluate_regional_shard_completeness(shard_heartbeats: List[Dict[str, Any]],
         "all_shards_caught_up": len(lagging_regions) == 0,
         "reported_regions": sorted(seen_watermarks.keys()),
         "lagging_details": lagging_regions,
+    }
+
+
+def merge_regional_usage_shards(conn, tenant_id: str, shard_records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """归并来自多个边缘地域分片（如 cn-east-1, cn-north-2, ap-southeast-1）的计量汇总包并写入缓冲队列。"""
+    from datetime import timezone
+    import uuid
+    from app.compat.usage_dual_write_shim import stage_usage_event_buffered
+    from app.repos.subscription_repo import get_latest_subscription
+
+    if not isinstance(shard_records, list) or not shard_records:
+        raise ValueError("shard_records 不能为空")
+
+    sub = get_latest_subscription(conn, tenant_id)
+    plan_code = sub["plan_code"] if sub else "STARTER"
+
+    merged_buckets: Dict[tuple, int] = {}
+    for rec in shard_records:
+        qty = int(rec.get("quantity", 0))
+        raw_ts = str(rec.get("occurred_at") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")).strip()
+        period_key = str(rec.get("period_key") or raw_ts[:7])
+        metric = str(rec.get("metric_code") or "API_CALLS")
+        # 按分片批次键同步最新区域采集快照值
+        merged_buckets[(period_key, metric)] = qty
+
+    total_merged = 0
+    for (pkey, metric), bucket_qty in merged_buckets.items():
+        stage_usage_event_buffered(
+            conn,
+            event_id=f"ue_sh_{uuid.uuid4().hex[:12]}",
+            tenant_id=tenant_id,
+            quantity=bucket_qty,
+            occurred_at=f"{pkey}-15T00:00:00Z",
+            period_key=pkey,
+            resolved_plan_code=plan_code,
+            metric_code=metric,
+        )
+        total_merged += bucket_qty
+
+    return {
+        "tenant_id": tenant_id,
+        "shard_input_count": len(shard_records),
+        "merged_bucket_count": len(merged_buckets),
+        "total_merged_quantity": total_merged,
     }

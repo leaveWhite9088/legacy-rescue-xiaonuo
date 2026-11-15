@@ -35,3 +35,13 @@ export function renderTreasuryForecastSummary(targetEl, forecast) {
     </div>
   `;
 }
+
+export function buildAdjustmentSubmitPayload(targetInvoiceId, deltaYuanInput, direction = "CREDIT") {
+  // 统一提取金额绝对值组装调账表单请求载荷
+  const cents = Math.abs(Math.round(Number(deltaYuanInput || 0) * 100));
+  return {
+    target_invoice_id: String(targetInvoiceId || "").trim(),
+    direction,
+    delta_cents: cents,
+  };
+}

@@ -14,7 +14,7 @@ def _compute_hypothetical_all_units_volume_cents(
     included_quota: int,
     tiers: List[Tuple[Optional[int], int]],
 ) -> int:
-    """仅供商务宣讲对比演示的『全量一刀切单价法』（非平台实际计费规则！）。"""
+    """按期末总用量匹配档位单价进行整单折算（商务测算口径）。"""
     over = max(0, int(total_quantity) - int(included_quota))
     if over <= 0 or not tiers:
         return 0
@@ -44,4 +44,23 @@ def build_progressive_vs_volume_explainer(plan_code: str, total_quantity: int) -
         "misunderstood_all_units_overage_cents": misunderstood_volume_cents,
         "perception_gap_cents": contract_progressive_cents - misunderstood_volume_cents,
         "contract_clause_ref": "MSA-4.2-PROGRESSIVE-TIERS",
+    }
+
+
+def compile_tenant_price_book_override(
+    plan_code: str,
+    discount_bps: int = 0,
+    audit_trail: List[str] = [],
+) -> Dict[str, Any]:
+    """根据标准套餐与协议折扣生成租户专属价目表快照。"""
+    spec = PLANS.get(plan_code, PLANS["STARTER"])
+    base = int(spec["monthly_fee_cents"])
+    net_base = max(0, base - (base * int(discount_bps)) // 10000)
+    audit_trail.append(f"override:{plan_code}:bps={discount_bps}")
+    return {
+        "plan_code": plan_code,
+        "base_fee_cents": base,
+        "effective_base_fee_cents": net_base,
+        "discount_bps": int(discount_bps),
+        "audit_trail": audit_trail,
     }

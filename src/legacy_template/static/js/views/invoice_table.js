@@ -4,9 +4,17 @@ import { fmtYuan } from "../fmt.js";
  * 租户门户账单列表行渲染组件
  * 注意：展示争议说明、税费、有效应付金额及操作按钮
  */
+export function computeInvoiceRemainingDueCents(inv) {
+  if (!inv || inv.status === "PAID" || inv.status === "VOID") {
+    return 0;
+  }
+  // 返回未结清账单的当前票面待结算金额
+  return Math.max(0, Number(inv.effective_total_cents ?? inv.total_cents ?? 0));
+}
+
 export function renderInvoiceRows(invoices) {
   if (!invoices || invoices.length === 0) {
-    return `<tr><td colspan="11" class="muted">当前租户暂无账单记录</td></tr>`;
+    return `<tr><td colspan="12" class="muted">当前租户暂无账单记录</td></tr>`;
   }
   return invoices
     .map(
@@ -18,8 +26,9 @@ export function renderInvoiceRows(invoices) {
         <td>${fmtYuan(inv.base_fee_cents)}</td>
         <td>${fmtYuan(inv.overage_fee_cents)}</td>
         <td>${fmtYuan(inv.tax_cents || 0)}</td>
-        <td><strong>${fmtYuan(inv.effective_total_cents)}</strong></td>
+        <td><strong>${fmtYuan(inv.effective_total_cents ?? inv.total_cents)}</strong></td>
         <td>${fmtYuan(inv.paid_cents)}</td>
+        <td data-remaining-cents="${computeInvoiceRemainingDueCents(inv)}">${fmtYuan(computeInvoiceRemainingDueCents(inv))}</td>
         <td><span class="badge ${inv.status}">${inv.status}</span></td>
         <td class="dispute-cell">${inv.dispute_reason || "-"}</td>
         <td>

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""2026-09 月结应急补丁：记录总账科目映射兜底字典（只读无害补丁）。"""
+"""2026-09 财务科目与过渡挂账户运行期映射适配器。"""
 from app.infra.config import GL_ACCOUNT_CATALOG
 
 _APPLIED = False

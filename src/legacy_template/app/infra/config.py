@@ -124,16 +124,18 @@ TAX_PROFILES: Dict[str, Dict[str, Any]] = {
     },
 }
 
-# 渠道代理商返佣阶梯（仅按实际现金净回款净额计提，赠送金抵扣部分不计返佣）
+# 渠道代理商返佣阶梯配置
 PARTNER_TIERS: Dict[str, Dict[str, int]] = {
     "SILVER": {"rate_bps": 800, "min_quarterly_cents": 0},          # 8%
     "GOLD": {"rate_bps": 1200, "min_quarterly_cents": 500000},      # 12%
     "PLATINUM": {"rate_bps": 1500, "min_quarterly_cents": 2000000}, # 15%
 }
 
-LATE_FEE_RATE_BPS = 500  # 逾期滞纳金统一 5%，全平台无 VIP 豁免
+LATE_FEE_RATE_BPS = 500
 
-FAPIAO_SINGLE_SHEET_MAX_CENTS = 10_000_000  # 单张数电票最高含税限额 10 万元
+FAPIAO_SINGLE_SHEET_MAX_CENTS = 10_000_000
+
+RUNTIME_COMPAT_REGISTRY: Dict[str, Any] = {}
 
 DUNNING_STAGE_POLICY = [
     {"stage": "GRACE", "min_overdue_days": 1, "max_overdue_days": 3, "throttle_pct": 0, "channel": "EMAIL"},

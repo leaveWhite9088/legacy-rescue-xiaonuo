@@ -86,11 +86,20 @@ def refund_invoice(invoice_id: str):
     except (KeyError, TypeError, ValueError):
         return jsonify({"error": "refund_cents 必须为正整数"}), 400
     reason = str(data.get("reason") or "管理员退款")
+    approval_ticket_id = str(data.get("approval_ticket_id") or "").strip() or None
     db_path = current_app.config.get("DB_PATH")
     try:
         with tx_context(db_path, immediate=True) as conn:
-            res = facade_admin_refund(conn, invoice_id, refund_cents, reason=reason)
+            res = facade_admin_refund(
+                conn,
+                invoice_id,
+                refund_cents,
+                reason=reason,
+                approval_ticket_id=approval_ticket_id,
+            )
         return jsonify(res)
+    except PermissionError as e:
+        return jsonify({"error": str(e)}), 403
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -121,5 +130,29 @@ def recalc_invoice(invoice_id: str):
         with tx_context(db_path, immediate=True) as conn:
             res = facade_admin_recalculate(conn, invoice_id)
         return jsonify(res)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@bp.route("/<invoice_id>/fx-settle", methods=["POST"])
+@require_tenant
+def fx_settle_invoice(invoice_id: str):
+    from app.treasury.fx_settlement_service import settle_foreign_currency_invoice
+
+    data = request.get_json(silent=True) or {}
+    ccy = str(data.get("currency") or data.get("currency_code") or "USD")
+    try:
+        minor_units = int(data.get("foreign_amount_minor", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "foreign_amount_minor 必须为整数"}), 400
+    db_path = current_app.config.get("DB_PATH")
+    try:
+        with tx_context(db_path, immediate=True) as conn:
+            res = settle_foreign_currency_invoice(conn, g.tenant["id"], invoice_id, ccy, minor_units)
+        return jsonify(res)
+    except LookupError as e:
+        return jsonify({"error": str(e)}), 404
+    except PermissionError as e:
+        return jsonify({"error": str(e)}), 403
     except ValueError as e:
         return jsonify({"error": str(e)}), 400

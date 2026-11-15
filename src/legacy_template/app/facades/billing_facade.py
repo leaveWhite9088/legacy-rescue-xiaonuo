@@ -39,8 +39,14 @@ def facade_dispute_invoice(
     return submit_invoice_dispute(conn, requester_tenant_id, invoice_id, reason)
 
 
-def facade_admin_refund(conn: sqlite3.Connection, invoice_id: str, refund_cents: int, reason: str) -> Dict[str, Any]:
-    return admin_refund_invoice(conn, invoice_id, refund_cents, reason=reason)
+def facade_admin_refund(
+    conn: sqlite3.Connection,
+    invoice_id: str,
+    refund_cents: int,
+    reason: str,
+    approval_ticket_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    return admin_refund_invoice(conn, invoice_id, refund_cents, reason=reason, approval_ticket_id=approval_ticket_id)
 
 
 def facade_admin_recalculate(conn: sqlite3.Connection, invoice_id: str) -> Dict[str, Any]:

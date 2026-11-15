@@ -80,6 +80,16 @@ def admin_sox_controls():
         return jsonify(run_sox_control_assessment(conn))
 
 
+@bp.route("/api/admin/diagnostics/pricebook-override", methods=["GET"])
+@require_admin
+def admin_pricebook_override_preview():
+    from app.billing_ext.custom_price_book_overrides import compile_tenant_price_book_override
+
+    plan_code = request.args.get("plan_code", "PRO")
+    discount_bps = int(request.args.get("discount_bps", "500"))
+    return jsonify(compile_tenant_price_book_override(plan_code, discount_bps=discount_bps))
+
+
 @bp.route("/api/admin/diagnostics/intercompany/<period_key>", methods=["GET"])
 @require_admin
 def admin_intercompany_pack(period_key: str):

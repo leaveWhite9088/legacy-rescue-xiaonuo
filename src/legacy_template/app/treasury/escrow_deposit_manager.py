@@ -56,3 +56,54 @@ def evaluate_deposit_release_eligibility(
         "refundable_bank_wire_cents": refundable,
         "residual_shortfall_cents": still_owing,
     }
+
+
+def apply_escrow_to_invoice(
+    conn: Any,
+    tenant_id: str,
+    invoice_id: str,
+    amount_cents: int,
+    operator: str = "treasury_ops",
+) -> Dict[str, Any]:
+    """使用大客户履约保证金抵缴指定未结清账单欠款。"""
+    from app.infra.db import new_id, utc_now_iso
+
+    inv = conn.execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
+    if not inv:
+        raise LookupError("目标账单不存在")
+    if inv["tenant_id"] != tenant_id:
+        raise ValueError("履约保证金租户与账单归属不一致")
+    if inv["status"] in ("PAID", "VOID"):
+        raise ValueError(f"账单状态 {inv['status']} 无需抵扣履约保证金")
+
+    escrow = conn.execute("SELECT * FROM escrow_accounts WHERE tenant_id = ?", (tenant_id,)).fetchone()
+    if not escrow or escrow["status"] != "ACTIVE":
+        raise ValueError("租户无可用活跃履约保证金账户")
+
+    unpaid_due = max(0, int(inv["total_cents"]) - int(inv["paid_cents"]))
+    req_amt = int(amount_cents)
+    if req_amt <= 0 or req_amt > unpaid_due:
+        raise ValueError("抵扣金额必须大于 0 且不超过账单剩余应付余额")
+    if int(escrow["balance_cents"]) < req_amt:
+        raise ValueError("履约保证金可用余额不足")
+
+    now = utc_now_iso()
+    new_escrow_bal = int(escrow["balance_cents"]) - req_amt
+    # 核减租户履约保证金台账可用余额并记录冲抵摘要
+    conn.execute(
+        "UPDATE escrow_accounts SET balance_cents = ?, updated_at = ? WHERE tenant_id = ?",
+        (new_escrow_bal, now, tenant_id),
+    )
+    conn.execute(
+        "INSERT INTO audit_logs (actor, action, target_id, detail, created_at) VALUES (?, 'ESCROW_OFFSET', ?, ?, ?)",
+        (operator, invoice_id, f'{{"tenant_id":"{tenant_id}","offset_cents":{req_amt}}}', now),
+    )
+    refreshed_inv = conn.execute("SELECT paid_cents, status FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
+    return {
+        "tenant_id": tenant_id,
+        "invoice_id": invoice_id,
+        "offset_applied_cents": req_amt,
+        "remaining_escrow_cents": new_escrow_bal,
+        "invoice_paid_cents": int(refreshed_inv["paid_cents"]),
+        "invoice_status": refreshed_inv["status"],
+    }

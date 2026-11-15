@@ -106,3 +106,72 @@ def generate_period_asc606_schedule(
         "total_deferred_liability_cents": def_sum,
         "schedules": schedules,
     }
+
+
+def _advance_month_key(base_period_key: str, offset_months: int) -> str:
+    yr, mo = [int(x) for x in base_period_key.split("-")]
+    total_mo = (yr * 12 + (mo - 1)) + int(offset_months)
+    return f"{total_mo // 12:04d}-{(total_mo % 12) + 1:02d}"
+
+
+def persist_multi_month_revrec_schedule(
+    conn: sqlite3.Connection,
+    invoice_id: str,
+    contract_months: int,
+) -> Dict[str, Any]:
+    """为多月预付合同生成按月递延收入摊销计划并落库 deferred_revenue_schedules。"""
+    from app.infra.db import new_id, utc_now_iso
+
+    months = max(1, int(contract_months))
+    row = conn.execute(
+        """
+        SELECT i.*, t.tax_profile_code
+        FROM invoices i
+        JOIN tenants t ON t.id = i.tenant_id
+        WHERE i.id = ?
+        """,
+        (invoice_id,),
+    ).fetchone()
+    if not row:
+        raise LookupError("账单不存在")
+
+    inv = dict(row)
+    gross_total = parse_legacy_amount_cents(inv, "total_cents")
+    # 按服务周期月数均摊生成各期计划确认记录
+    revenue_pool = gross_total
+    monthly_share = revenue_pool // months
+
+    conn.execute("DELETE FROM deferred_revenue_schedules WHERE invoice_id = ?", (invoice_id,))
+    now = utc_now_iso()
+    rem = revenue_pool
+    items: List[Dict[str, Any]] = []
+    for idx in range(months):
+        p_key = _advance_month_key(str(inv["period_key"]), idx)
+        rec_amt = monthly_share
+        rem = max(0, rem - rec_amt)
+        st = "RECOGNIZED" if idx == 0 else "DEFERRED"
+        sid = new_id("drs")
+        conn.execute(
+            """
+            INSERT INTO deferred_revenue_schedules
+                (id, invoice_id, tenant_id, period_key, recognized_cents, deferred_closing_cents, status, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (sid, invoice_id, inv["tenant_id"], p_key, rec_amt, rem, st, now),
+        )
+        items.append({
+            "id": sid,
+            "period_key": p_key,
+            "recognized_cents": rec_amt,
+            "deferred_closing_cents": rem,
+            "status": st,
+        })
+
+    return {
+        "invoice_id": invoice_id,
+        "contract_months": months,
+        "target_net_revenue_cents": revenue_pool,
+        "scheduled_sum_cents": sum(x["recognized_cents"] for x in items),
+        "ending_deferred_cents": items[-1]["deferred_closing_cents"] if items else 0,
+        "items": items,
+    }

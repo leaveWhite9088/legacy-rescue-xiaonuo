@@ -60,3 +60,49 @@ def evaluate_ifrs15_contract_modification(
         "prospective_monthly_rev_cents": future_monthly,
         "remaining_months": max(1, revised_total_months - done_m),
     }
+
+
+def rebaseline_deferred_schedule_on_upgrade(
+    conn: Any,
+    invoice_id: str,
+    added_net_cents: int,
+    modification_period_key: str,
+) -> Dict[str, Any]:
+    """期中合同升配变更时更新对应账单的递延收入月度摊销表。"""
+    from app.infra.db import utc_now_iso
+
+    rows = conn.execute(
+        "SELECT * FROM deferred_revenue_schedules WHERE invoice_id = ? ORDER BY period_key ASC",
+        (invoice_id,),
+    ).fetchall()
+    if not rows:
+        raise LookupError("未找到该合同的递延收入摊销计划")
+
+    now = utc_now_iso()
+    # 按变更后合同总金额重新全周期平滑分摊各月确认额
+    total_pool = sum(int(r["recognized_cents"]) for r in rows) + int(added_net_cents)
+    n_all = len(rows)
+    base_share = total_pool // n_all
+    rem = total_pool
+    updated_rows = []
+    for idx, r in enumerate(rows):
+        share = base_share if idx < n_all - 1 else (total_pool - base_share * (n_all - 1))
+        rem = max(0, rem - share)
+        conn.execute(
+            "UPDATE deferred_revenue_schedules SET recognized_cents = ?, deferred_closing_cents = ?, updated_at = ? WHERE id = ?",
+            (share, rem, now, r["id"]),
+        )
+        updated_rows.append({
+            "id": r["id"],
+            "period_key": r["period_key"],
+            "status": r["status"],
+            "recognized_cents": share,
+            "deferred_closing_cents": rem,
+        })
+
+    return {
+        "invoice_id": invoice_id,
+        "modification_period_key": modification_period_key,
+        "added_net_cents": int(added_net_cents),
+        "schedules": updated_rows,
+    }

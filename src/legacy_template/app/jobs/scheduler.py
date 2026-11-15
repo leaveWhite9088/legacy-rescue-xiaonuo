@@ -11,6 +11,8 @@ from app.jobs.dunning_escalation_job import run_dunning_escalation_job
 from app.jobs.metering_flush_job import flush_usage_events
 from app.jobs.metrics_rollup_job import run_metrics_rollup_job
 from app.jobs.settlement_job import generate_due_cycle_invoices, settle_open_invoices
+from app.jobs.sla_credit_scan_job import run_sla_credit_scan_job
+from app.services.webhook_dispatcher import dispatch_queued_webhooks
 
 
 def _now_iso() -> str:
@@ -28,6 +30,8 @@ def run_all_jobs(db_path: Optional[str] = None, as_of_iso: Optional[str] = None)
         dlq_res = retry_pending_dlq(conn)
         comm_res = run_partner_commission_job(conn, period_key=period_key)
         dunning_res = run_dunning_escalation_job(conn, as_of_iso=now)
+        sla_res = run_sla_credit_scan_job(conn, period_key=period_key)
+        webhook_res = dispatch_queued_webhooks(conn)
         rollup_res = run_metrics_rollup_job(conn)
     return {
         "as_of": now,
@@ -38,5 +42,7 @@ def run_all_jobs(db_path: Optional[str] = None, as_of_iso: Optional[str] = None)
         "dlq_retry": dlq_res,
         "partner_commission": comm_res,
         "dunning_escalation": dunning_res,
+        "sla_credits": sla_res,
+        "webhook_dispatch": webhook_res,
         "metrics_rollup": rollup_res,
     }

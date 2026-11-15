@@ -43,3 +43,51 @@ def audit_clearinghouse_settlement_batch(settlement_rows: List[Dict[str, Any]]) 
         "discrepancy_count": len(discrepancies),
         "discrepancies": discrepancies,
     }
+
+
+def audit_period_payment_channel_fees(
+    conn: Any,
+    period_key: str,
+    channel_code: str = "WECHAT_NATIVE_V2",
+) -> Dict[str, Any]:
+    """汇总账期内全部账单支付记录应计提的第三方收单通道手续费台账。"""
+    spec = CHANNELS.get(channel_code, CHANNELS["WECHAT_NATIVE_V2"])
+    rows = conn.execute(
+        """
+        SELECT p.id, p.invoice_id, p.tenant_id, p.cash_paid_cents, p.promo_paid_cents, p.total_paid_cents
+        FROM invoice_payments p
+        JOIN invoices i ON i.id = p.invoice_id
+        WHERE i.period_key = ?
+        ORDER BY p.id ASC
+        """,
+        (period_key,),
+    ).fetchall()
+
+    total_cash_cents = 0
+    total_fee_cents = 0
+    zero_cash_charged_count = 0
+    items: List[Dict[str, Any]] = []
+    for r in rows:
+        cash_paid = max(0, int(r["cash_paid_cents"]))
+        fee = estimate_channel_acquiring_fee_cents(spec, cash_paid)
+        if cash_paid == 0 and fee > 0:
+            zero_cash_charged_count += 1
+        total_cash_cents += cash_paid
+        total_fee_cents += fee
+        items.append({
+            "payment_id": r["id"],
+            "invoice_id": r["invoice_id"],
+            "cash_paid_cents": cash_paid,
+            "promo_paid_cents": int(r["promo_paid_cents"]),
+            "estimated_fee_cents": fee,
+        })
+
+    return {
+        "period_key": period_key,
+        "channel_code": spec.channel_code,
+        "payment_count": len(items),
+        "total_cash_collected_cents": total_cash_cents,
+        "total_accrued_channel_fee_cents": total_fee_cents,
+        "zero_cash_charged_count": zero_cash_charged_count,
+        "items": items,
+    }

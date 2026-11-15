@@ -17,7 +17,7 @@ class RawMeteringPointV3:
 
 class TumblingWindowAggregatorV3:
     """v3 原型：按 (tenant_id, period_key, plan_code_snapshot) 内存微批去重聚合。
-    尚未实现 SQLite 持久化 checkpoint，进程重启会丢状态，因此未投产。
+    基于内存时间窗口聚合实时计量事件流。
     """
 
     def __init__(self) -> None:

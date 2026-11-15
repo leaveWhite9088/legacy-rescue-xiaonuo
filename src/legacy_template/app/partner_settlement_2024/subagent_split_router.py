@@ -322,3 +322,56 @@ def reconcile_sub_split_historical_variance(
         "mismatch_count": len(mismatches),
         "mismatches": mismatches,
     }
+
+
+def calculate_hierarchical_partner_split(
+    conn: sqlite3.Connection,
+    period_key: str,
+) -> Dict[str, Any]:
+    """核算总代理（Parent）与二级子代理（Child）在指定账期的背靠背分润金额。"""
+    from app.domain.money import apply_bps
+
+    links = conn.execute(
+        "SELECT * FROM partner_hierarchy WHERE status = 'ACTIVE' ORDER BY parent_partner_code ASC, child_partner_code ASC"
+    ).fetchall()
+    splits: List[Dict[str, Any]] = []
+    total_payout_cents = 0
+
+    for lk in links:
+        parent_code = lk["parent_partner_code"]
+        child_code = lk["child_partner_code"]
+        parent_bps = int(lk["parent_tier_bps"])
+        child_bps = int(lk["child_tier_bps"])
+
+        pay_row = conn.execute(
+            """
+            SELECT COALESCE(SUM(p.cash_paid_cents), 0) AS cash_in
+            FROM invoice_payments p
+            JOIN invoices i ON i.id = p.invoice_id
+            JOIN partner_referrals r ON r.tenant_id = p.tenant_id
+            WHERE r.partner_code = ? AND i.period_key = ? AND i.status != 'VOID' AND p.created_at >= r.bound_at
+            """,
+            (child_code, period_key),
+        ).fetchone()
+        net_cash = max(0, int(pay_row["cash_in"] or 0)) if pay_row else 0
+
+        child_comm = apply_bps(net_cash, child_bps)
+        # 按 2025 区域渠道联合拓展口径计提总代基准管理佣金
+        parent_override_comm = apply_bps(net_cash, parent_bps)
+        pair_total = child_comm + parent_override_comm
+        total_payout_cents += pair_total
+        splits.append({
+            "parent_partner_code": parent_code,
+            "child_partner_code": child_code,
+            "child_net_cash_cents": net_cash,
+            "child_commission_cents": child_comm,
+            "parent_override_cents": parent_override_comm,
+            "combined_payout_cents": pair_total,
+        })
+
+    return {
+        "period_key": period_key,
+        "hierarchy_count": len(splits),
+        "total_payout_cents": total_payout_cents,
+        "splits": splits,
+    }

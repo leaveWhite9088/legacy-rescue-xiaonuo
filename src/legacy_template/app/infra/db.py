@@ -1,13 +1,23 @@
 # -*- coding: utf-8 -*-
 """SQLite 持久化层、事务上下文、多子系统表结构定义与 2024 v1 异构老租户兼容适配层。"""
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import json
 import os
 import sqlite3
 from typing import Any, Dict, Optional
+import uuid
 
 from app.infra.config import DB_PATH
 from app.legacy_v1.v1_currency_shim import parse_v1_yuan_string
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def new_id(prefix: str = "rec") -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 
 def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
@@ -57,6 +67,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
             tenant_id TEXT NOT NULL UNIQUE,
             min_monthly_commit_cents INTEGER NOT NULL DEFAULT 0,
             custom_overage_discount_bps INTEGER NOT NULL DEFAULT 0,
+            credit_memo_bps INTEGER NOT NULL DEFAULT 0,
             credit_limit_cents INTEGER NOT NULL DEFAULT 0,
             signed_by TEXT NOT NULL DEFAULT 'sales_ops',
             valid_from TEXT NOT NULL,
@@ -237,6 +248,8 @@ def init_schema(conn: sqlite3.Connection) -> None:
             debit_account TEXT NOT NULL,
             credit_account TEXT NOT NULL,
             amount_cents INTEGER NOT NULL,
+            debit_cents INTEGER NOT NULL DEFAULT 0,
+            credit_cents INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL
         );
 
@@ -379,6 +392,56 @@ def init_schema(conn: sqlite3.Connection) -> None:
             target_id TEXT NOT NULL,
             detail TEXT DEFAULT '',
             created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS fx_rates (
+            currency_code TEXT NOT NULL,
+            effective_date TEXT NOT NULL,
+            rate_bps INTEGER NOT NULL,
+            source TEXT NOT NULL DEFAULT 'PBOC_MID',
+            PRIMARY KEY (currency_code, effective_date)
+        );
+
+        CREATE TABLE IF NOT EXISTS fx_settlement_logs (
+            id TEXT PRIMARY KEY,
+            invoice_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            currency_code TEXT NOT NULL,
+            foreign_minor_units INTEGER NOT NULL,
+            applied_rate_bps INTEGER NOT NULL,
+            settled_cny_cents INTEGER NOT NULL,
+            unrealized_gain_loss_cents INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS escrow_accounts (
+            tenant_id TEXT PRIMARY KEY,
+            initial_deposit_cents INTEGER NOT NULL DEFAULT 0,
+            balance_cents INTEGER NOT NULL DEFAULT 0,
+            frozen_cents INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS deferred_revenue_schedules (
+            id TEXT PRIMARY KEY,
+            invoice_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            period_key TEXT NOT NULL,
+            recognized_cents INTEGER NOT NULL DEFAULT 0,
+            deferred_closing_cents INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'DEFERRED',
+            updated_at TEXT NOT NULL,
+            UNIQUE(invoice_id, period_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS partner_hierarchy (
+            child_partner_code TEXT PRIMARY KEY,
+            parent_partner_code TEXT NOT NULL,
+            parent_tier_bps INTEGER NOT NULL,
+            child_tier_bps INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'ACTIVE'
         );
         """
     )

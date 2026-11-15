@@ -80,7 +80,7 @@ def retry_pending_dlq(conn: sqlite3.Connection, max_retries: int = 3) -> Dict[st
         try:
             _inline_fast_debit_for_dlq(conn, inv, idem_key=f"dlq:{inv_id}:{item['retry_count'] + 1}", now=now)
             conn.execute(
-                "UPDATE settlement_dlq SET status = 'RESOLVED', updated_at = ? WHERE id = ?",
+                "UPDATE settlement_dlq SET retry_count = retry_count + 1, updated_at = ? WHERE id = ?",
                 (now, item["id"]),
             )
             recovered += 1

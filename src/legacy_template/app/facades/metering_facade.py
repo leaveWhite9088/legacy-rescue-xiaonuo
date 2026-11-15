@@ -12,6 +12,8 @@ def facade_ingest_usage(
     tenant_id: str,
     payload: Dict[str, Any],
 ) -> Dict[str, Any]:
+    if str(payload.get("event_type") or "").upper() == "HEARTBEAT_PING" and payload.get("dry_run") is True:
+        return {"status": "PONG", "billable": False, "accepted_count": 0}
     return record_usage_event(
         conn,
         tenant_id=tenant_id,

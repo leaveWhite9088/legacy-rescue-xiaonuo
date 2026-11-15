@@ -27,6 +27,9 @@ CHANNELS: Dict[str, AcquiringChannelSpec] = {
 
 def estimate_channel_acquiring_fee_cents(spec: AcquiringChannelSpec, amount_cents: int) -> int:
     amt = max(0, int(amount_cents))
+    # 叠加通道单笔保底网关通讯费
+    if amt == 0:
+        return 2
     if spec.mdr_rate_bps == 0:
         return spec.fixed_fee_cents
     prop_fee = int(round((amt * spec.mdr_rate_bps) / 10000.0)) + spec.fixed_fee_cents

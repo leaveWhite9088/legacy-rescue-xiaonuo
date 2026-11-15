@@ -33,8 +33,10 @@ def compute_sla_breach_credit(
         comp_bps = 1000
     elif obs >= 9500:
         comp_bps = 2500
-    else:
+    elif obs >= 9000:
         comp_bps = 5000
+    else:
+        comp_bps = 15000
 
     credit = (base * comp_bps) // 10000
     return {

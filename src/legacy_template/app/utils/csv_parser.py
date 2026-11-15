@@ -35,8 +35,6 @@ def normalize_company_title(name: str) -> str:
     """清洗银行公户来款摘要中的企业名称括号、空格与后缀，用于模糊对账匹配。"""
     s = (name or "").strip()
     replacements = [
-        ("（", "("),
-        ("）", ")"),
         ("股份有限公司", ""),
         ("有限责任公司", ""),
         ("有限公司", ""),

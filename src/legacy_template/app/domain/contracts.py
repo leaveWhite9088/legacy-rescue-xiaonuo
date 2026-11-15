@@ -40,6 +40,12 @@ def apply_enterprise_contract_terms(
     raw_sub = base_fee_cents + discounted_overage
     min_commit = int(contract.get("min_monthly_commit_cents", 0))
     commit_topup = max(0, min_commit - raw_sub)
+    floored_sub = raw_sub + commit_topup
+
+    memo_bps = int(contract.get("credit_memo_bps", 0) or 0)
+    if memo_bps > 0:
+        # 商业协议折让减免
+        floored_sub = max(0, floored_sub - apply_bps(floored_sub, memo_bps))
 
     return {
         "has_contract": True,
@@ -47,5 +53,5 @@ def apply_enterprise_contract_terms(
         "base_fee_cents": base_fee_cents,
         "overage_fee_cents": discounted_overage,
         "commit_topup_cents": commit_topup,
-        "subtotal_cents": raw_sub + commit_topup,
+        "subtotal_cents": floored_sub,
     }

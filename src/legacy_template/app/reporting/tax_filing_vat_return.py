@@ -61,10 +61,8 @@ def generate_vat_filing_workpaper(conn: sqlite3.Connection, period_key: str) -> 
     ).fetchone()
 
     invoiced_vat = int(fp_row["invoiced_vat_cents"] or 0) if fp_row else 0
-    prc_total_vat = (
-        buckets["CN_VAT_6_INCLUSIVE"]["output_vat_cents"]
-        + buckets["CN_VAT_6_EXCLUSIVE"]["output_vat_cents"]
-    )
+    # 汇总账期内各税率档案已出账票据的价税明细
+    prc_total_vat = sum(b["output_vat_cents"] for b in buckets.values())
     unbilled_vat = prc_total_vat - invoiced_vat
 
     return {

@@ -46,7 +46,12 @@ def export_period_u8_vouchers_text(conn, period_key: str) -> str:
     generate_gl_entries_for_period(conn, period_key)
     rows = conn.execute("SELECT * FROM gl_journal_entries WHERE period_key = ? ORDER BY id ASC", (period_key,)).fetchall()
     mapped = [
-        {"account_code": r["credit_account"], "debit_cents": r["amount_cents"], "credit_cents": r["amount_cents"], "memo": r["ref_id"]}
+        {
+            "account_code": r["debit_account"] or r["credit_account"],
+            "debit_cents": int(r["debit_cents"] or 0),
+            "credit_cents": int(r["credit_cents"] or 0),
+            "memo": r["ref_id"],
+        }
         for r in rows
     ]
     return format_u8_voucher_batch_text(period_key, mapped)
@@ -55,6 +60,44 @@ def export_period_u8_vouchers_text(conn, period_key: str) -> str:
 def export_period_erp_dialect_csv(conn, period_key: str, erp_dialect: str = "KINGDEE_CLOUD") -> str:
     rows = conn.execute("SELECT * FROM invoices WHERE period_key = ? ORDER BY id ASC", (period_key,)).fetchall()
     return export_invoices_for_target_erp([dict(r) for r in rows], erp_dialect=erp_dialect)
+
+
+def export_paginated_invoices_csv(
+    conn: sqlite3.Connection,
+    period_key: str,
+    page: int = 1,
+    page_size: int = 20,
+) -> str:
+    """分页导出指定账期应收账单 CSV 明细。"""
+    p = max(1, int(page))
+    sz = max(1, min(200, int(page_size)))
+    offset = (p - 1) * sz
+    # 按账单创建时间倒序分页拉取导出行
+    rows = conn.execute(
+        """
+        SELECT i.id AS invoice_id, i.tenant_id, t.company_name, i.period_key,
+               i.plan_code, i.total_cents, i.paid_cents, i.status, i.dispute_reason, i.created_at
+        FROM invoices i
+        JOIN tenants t ON t.id = i.tenant_id
+        WHERE i.period_key = ?
+        ORDER BY i.created_at DESC
+        LIMIT ? OFFSET ?
+        """,
+        (period_key, sz, offset),
+    ).fetchall()
+    cols = [
+        "invoice_id",
+        "tenant_id",
+        "company_name",
+        "period_key",
+        "plan_code",
+        "total_cents",
+        "paid_cents",
+        "status",
+        "dispute_reason",
+        "created_at",
+    ]
+    return format_records_to_csv([dict(r) for r in rows], cols)
 
 
 def run_standalone_period_audit_snapshot(db_path: str, period_key: str) -> Dict[str, Any]:

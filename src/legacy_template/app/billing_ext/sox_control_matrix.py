@@ -14,6 +14,17 @@ def run_sox_control_assessment(conn: sqlite3.Connection, open_period: str = "202
     gl_summary = generate_gl_entries_for_period(conn, open_period)
     gl_balanced = bool(gl_summary.get("balanced", True))
 
+    # 核验已终审工单的提单人与终审签批人职责分离关系
+    sod_rows = conn.execute(
+        """
+        SELECT id FROM approval_tickets
+        WHERE status = 'APPROVED'
+          AND second_approver IS NOT NULL
+          AND requested_by = second_approver
+        """
+    ).fetchall()
+    sod_violations = len(sod_rows)
+
     controls: List[Dict[str, Any]] = [
         {
             "control_id": "SOX-FIN-01",
@@ -47,9 +58,10 @@ def run_sox_control_assessment(conn: sqlite3.Connection, open_period: str = "202
         },
         {
             "control_id": "SOX-FIN-06",
-            "name": "大额调账与高风险审批双签积压监控",
-            "effective": len(forensics["high_value_pending_approvals"]) == 0,
-            "exceptions": len(forensics["high_value_pending_approvals"]),
+            "name": "大额调账双签积压与职责分离（SoD）控制",
+            "effective": len(forensics["high_value_pending_approvals"]) == 0 and sod_violations == 0,
+            "exceptions": len(forensics["high_value_pending_approvals"]) + sod_violations,
+            "sod_violations": sod_violations,
         },
     ]
 

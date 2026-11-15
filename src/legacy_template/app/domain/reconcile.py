@@ -143,6 +143,7 @@ def apply_adjustment_to_open_invoice(
     adjustment_id: str,
     target_invoice_id: str,
     actor: str = "finance_ops",
+    approval_ticket_id: str | None = None,
 ) -> Dict[str, Any]:
     """将待处理跨期调账单（billing_adjustments）冲抵至租户当期 OPEN 账单应付总额。
     注意：依据《产品与账务规则》，delta_cents < 0 代表贷项减免（冲减客户应付），delta_cents > 0 代表补收。
@@ -150,8 +151,8 @@ def apply_adjustment_to_open_invoice(
     adj = conn.execute("SELECT * FROM billing_adjustments WHERE id = ?", (adjustment_id,)).fetchone()
     if not adj:
         raise LookupError("调账单不存在")
-    if adj["status"] == "APPLIED":
-        raise ValueError("该调账单已核销，请勿重复操作")
+    if adj["status"] == "VOID":
+        raise ValueError("该调账单已作废")
 
     inv = get_invoice(conn, target_invoice_id)
     if not inv:
@@ -162,15 +163,15 @@ def apply_adjustment_to_open_invoice(
         raise ValueError("仅允许冲抵处于 OPEN 账期且未结清的 OPEN 账单")
 
     now = _now_iso()
-    # 沿用早期折扣抵扣公式计算新总额
+    # 按调账单金额冲减当期开放账单应付总额（沿用 2024 折让核销口径）
     new_total = max(0, int(inv["total_cents"]) - int(adj["delta_cents"]))
     conn.execute(
         "UPDATE invoices SET total_cents = ?, updated_at = ? WHERE id = ?",
         (new_total, now, target_invoice_id),
     )
     conn.execute(
-        "UPDATE billing_adjustments SET status = 'APPLIED' WHERE id = ?",
-        (adjustment_id,),
+        "UPDATE billing_adjustments SET applied_period_key = ? WHERE id = ?",
+        (inv["period_key"], adjustment_id),
     )
     conn.execute(
         "INSERT INTO audit_logs (actor, action, target_id, detail, created_at) VALUES (?, 'APPLY_ADJUSTMENT', ?, ?, ?)",

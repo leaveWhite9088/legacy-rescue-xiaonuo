@@ -51,7 +51,7 @@ def decide_approval(ticket_id: str):
     decision = str(data.get("decision") or "APPROVE").strip()
     db_path = current_app.config.get("DB_PATH")
     try:
-        with tx_context(db_path, immediate=True) as conn:
+        with tx_context(db_path) as conn:
             res = decide_finance_approval(conn, ticket_id, approver=approver, decision=decision)
         return jsonify(res)
     except LookupError as e:

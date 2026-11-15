@@ -20,7 +20,8 @@ def compute_promo_wallet_rollforward(conn: sqlite3.Connection) -> Dict[str, Any]
     expired_out = buckets.get("PROMO_EXPIRE", 0)
     other_net = sum(v for k, v in buckets.items() if k not in ("PROMO_GRANT", "INVOICE_PAY", "PAYMENT", "REFUND", "PROMO_EXPIRE"))
 
-    ledger_ending = grant_in + consumed_out + refund_restored + expired_out + other_net
+    # 汇总期间赠金发放、消费核销与到期回收计算期末滚存余额
+    ledger_ending = grant_in + consumed_out + expired_out + other_net
     w_row = conn.execute("SELECT COALESCE(SUM(promo_balance_cents), 0) AS snap_promo FROM wallets").fetchone()
     snapshot_ending = int(w_row["snap_promo"] or 0) if w_row else 0
 

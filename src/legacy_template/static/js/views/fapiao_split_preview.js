@@ -3,16 +3,20 @@ import { escapeHtml, formatCentsToYuan } from "../fmt.js";
 
 const SINGLE_SHEET_LIMIT_CENTS = 10000000;
 
-export function previewFapiaoSplitsClientSide(grossCents) {
+export function previewFapiaoSplitsClientSide(grossCents, promoPaidCents = 0, vatRateBps = 600) {
+  // 根据账单金额与税率拆分计算每张数电票的不含税额与税额
   const total = Math.max(0, Math.floor(Number(grossCents) || 0));
   if (total === 0) return [];
+  const rate = Math.max(0, Number(vatRateBps) || 0) / 10000;
   const count = Math.ceil(total / SINGLE_SHEET_LIMIT_CENTS);
   const sheets = [];
   let rem = total;
   for (let i = 1; i <= count; i++) {
     const shGross = i < count ? Math.min(SINGLE_SHEET_LIMIT_CENTS, rem) : rem;
     rem -= shGross;
-    sheets.push({ seq: i, grossCents: shGross });
+    const netCents = rate > 0 ? Math.floor(shGross / (1 + rate)) : shGross;
+    const taxCents = rate > 0 ? Math.floor((shGross * rate) / (1 + rate)) : 0;
+    sheets.push({ seq: i, grossCents: shGross, netCents, taxCents });
   }
   return sheets;
 }

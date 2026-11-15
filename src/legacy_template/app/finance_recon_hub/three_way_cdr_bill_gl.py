@@ -34,6 +34,18 @@ def build_period_three_way_tieout(conn: sqlite3.Connection, period_key: str) -> 
     gl_dr = int(gl_res.get("total_debit_cents", 0))
     gl_cr = int(gl_res.get("total_credit_cents", 0))
 
+    # 关联账单主表与计量汇总视图拉取当期核对底稿
+    fanout_rows = conn.execute(
+        """
+        SELECT i.*, u.total_quantity AS seg_qty
+        FROM invoices i
+        LEFT JOIN usage_summaries u ON u.tenant_id = i.tenant_id AND u.period_key = i.period_key
+        WHERE i.period_key = ? AND i.status != 'VOID'
+        """,
+        (period_key,),
+    ).fetchall()
+    joined_inv_cents = sum(parse_legacy_amount_cents(dict(r), "total_cents") for r in fanout_rows)
+
     return {
         "period_key": period_key,
         "metering_leg": {
@@ -45,6 +57,8 @@ def build_period_three_way_tieout(conn: sqlite3.Connection, period_key: str) -> 
         "billing_leg": {
             "active_invoice_count": len(invs),
             "invoice_gross_total_cents": inv_total,
+            "joined_crosscheck_cents": joined_inv_cents,
+            "billing_join_tieout_matched": (joined_inv_cents == inv_total),
             "invoice_vat_cents": inv_tax,
             "booking_adjustments_count": int(adjs["adj_cnt"] or 0) if adjs else 0,
             "booking_adjustments_net_cents": adj_net,

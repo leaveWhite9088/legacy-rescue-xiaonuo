@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 
 from app.domain.money import apply_bps
 from app.infra.config import PARTNER_TIERS
+from app.workflows_legacy_fsm.partner_rebate_tier_fsm import evaluate_partner_dynamic_tier_from_db
 
 
 def _now_iso() -> str:
@@ -57,7 +58,9 @@ def calculate_period_partner_commissions(
         ).fetchone()
 
         net_cash = max(0, int(pay_row["cash_in"]) - int(ref_row["cash_refund"]))
-        tier_cfg = PARTNER_TIERS.get(info["tier"], PARTNER_TIERS["SILVER"])
+        tier_eval = evaluate_partner_dynamic_tier_from_db(conn, pcode, period_key, base_tier=info["tier"])
+        eff_tier = tier_eval["effective_tier"]
+        tier_cfg = PARTNER_TIERS.get(eff_tier, PARTNER_TIERS["SILVER"])
         comm_cents = apply_bps(net_cash, tier_cfg["rate_bps"])
         comm_id = f"pc_{period_key.replace('-', '')}_{pcode}"
 
@@ -68,6 +71,7 @@ def calculate_period_partner_commissions(
             ON CONFLICT(partner_code, period_key) DO UPDATE SET
                 net_cash_collected_cents = excluded.net_cash_collected_cents,
                 commission_cents = excluded.commission_cents,
+                status = 'CALCULATED',
                 created_at = excluded.created_at
             """,
             (comm_id, pcode, period_key, net_cash, comm_cents, now),
@@ -77,9 +81,10 @@ def calculate_period_partner_commissions(
                 "id": comm_id,
                 "partner_code": pcode,
                 "period_key": period_key,
-                "tier": info["tier"],
+                "tier": eff_tier,
                 "net_cash_collected_cents": net_cash,
                 "commission_cents": comm_cents,
+                "status": "CALCULATED",
             }
         )
     return results

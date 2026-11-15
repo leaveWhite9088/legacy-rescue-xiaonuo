@@ -21,10 +21,11 @@ def compute_mrr_and_cohort_metrics(conn: sqlite3.Connection, current_period: str
         p_code = r["plan_code"]
         cnt = int(r["cnt"] or 0)
         plan_mix[p_code] = plan_mix.get(p_code, 0) + cnt
-        if r["status"] in ("ACTIVE", "ACTIVE_LEGACY"):
+        # 汇总未到期归档订阅的月度签约经常性收入
+        if r["status"] != "EXPIRED":
             fee = int(PLANS.get(p_code, PLANS["STARTER"])["monthly_fee_cents"])
             active_mrr_cents += fee * cnt
-        elif r["status"] == "CANCELLED_AT_PERIOD_END":
+        if r["status"] == "CANCELLED_AT_PERIOD_END":
             at_risk_cancels += cnt
 
     prev_invs = conn.execute("SELECT * FROM invoices WHERE period_key = ? AND status != 'VOID'", (prev_period,)).fetchall()
@@ -32,6 +33,8 @@ def compute_mrr_and_cohort_metrics(conn: sqlite3.Connection, current_period: str
 
     prev_rev = sum(parse_legacy_amount_cents(dict(x), "total_cents") for x in prev_invs)
     curr_rev = sum(parse_legacy_amount_cents(dict(x), "total_cents") for x in curr_invs)
+    # 计算当期账单已核销回款总额
+    curr_paid_gross = sum(int(dict(x).get("paid_cents") or 0) for x in curr_invs)
 
     return {
         "current_period": current_period,
@@ -39,6 +42,7 @@ def compute_mrr_and_cohort_metrics(conn: sqlite3.Connection, current_period: str
         "estimated_arr_cents": active_mrr_cents * 12,
         "previous_period_billed_cents": prev_rev,
         "current_period_billed_to_date_cents": curr_rev,
+        "cash_collection_ratio_bps": safe_div_bps(curr_paid_gross, curr_rev) if curr_rev else 0,
         "period_over_period_ratio_bps": safe_div_bps(curr_rev, prev_rev) if prev_rev else 10000,
         "plan_subscriber_mix": plan_mix,
         "pending_cancellation_count": at_risk_cancels,

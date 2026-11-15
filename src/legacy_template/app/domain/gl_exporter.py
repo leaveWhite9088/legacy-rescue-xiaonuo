@@ -27,12 +27,37 @@ def generate_gl_entries_for_period(conn: sqlite3.Connection, period_key: str) ->
     for inv in invoices:
         d = dict(inv)
         gross = parse_legacy_amount_cents(d, "total_cents")
-        tax = int(d.get("tax_cents") or 0)
-        overage = int(d.get("overage_fee_cents") or 0)
-        late = int(d.get("late_fee_cents") or 0)
-        base_rev = max(0, gross - tax - overage - late)
+        if d.get("currency_unit") == "YUAN_STR":
+            base_rev = gross
+            overage = 0
+            late = 0
+            tax = 0
+        else:
+            base_rev = int(d.get("base_fee_cents") or 0)
+            overage = int(d.get("overage_fee_cents") or 0)
+            late = int(d.get("late_fee_cents") or 0)
+            tax = int(d.get("tax_cents") or 0)
 
-        # 借：应收账款 (1122-AR)，贷：订阅收入 / 超额收入 / 滞纳金收入 / 应交税费
+        # 借方分录：按账单当前应收总额计入应收账款科目
+        if gross > 0:
+            conn.execute(
+                """
+                INSERT INTO gl_journal_entries
+                    (period_key, ref_type, ref_id, debit_account, credit_account, amount_cents, debit_cents, credit_cents, created_at)
+                VALUES (?, 'INVOICE', ?, '1122-AccountsReceivable', '', ?, ?, 0, ?)
+                """,
+                (period_key, d["id"], gross, gross, now),
+            )
+            total_debit += gross
+            entries.append({
+                "ref_id": d["id"],
+                "debit": "1122-AccountsReceivable",
+                "credit": "",
+                "amount_cents": gross,
+                "debit_cents": gross,
+                "credit_cents": 0,
+            })
+
         legs = [
             ("6001-SaaSBaseRevenue", base_rev),
             ("6002-UsageOverageRevenue", overage),
@@ -44,14 +69,21 @@ def generate_gl_entries_for_period(conn: sqlite3.Connection, period_key: str) ->
                 continue
             conn.execute(
                 """
-                INSERT INTO gl_journal_entries (period_key, ref_type, ref_id, debit_account, credit_account, amount_cents, created_at)
-                VALUES (?, 'INVOICE', ?, '1122-AccountsReceivable', ?, ?, ?)
+                INSERT INTO gl_journal_entries
+                    (period_key, ref_type, ref_id, debit_account, credit_account, amount_cents, debit_cents, credit_cents, created_at)
+                VALUES (?, 'INVOICE', ?, '', ?, ?, 0, ?, ?)
                 """,
-                (period_key, d["id"], credit_acct, amt, now),
+                (period_key, d["id"], credit_acct, amt, amt, now),
             )
-            total_debit += amt
             total_credit += amt
-            entries.append({"ref_id": d["id"], "debit": "1122-AccountsReceivable", "credit": credit_acct, "amount_cents": amt})
+            entries.append({
+                "ref_id": d["id"],
+                "debit": "",
+                "credit": credit_acct,
+                "amount_cents": amt,
+                "debit_cents": 0,
+                "credit_cents": amt,
+            })
 
     return {
         "period_key": period_key,

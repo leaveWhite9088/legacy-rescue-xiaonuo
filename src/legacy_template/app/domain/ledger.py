@@ -84,6 +84,21 @@ def pay_invoice_from_wallet(
     if inv["status"] not in ("OPEN", "PENDING_SETTLE"):
         raise ValueError(f"当前账单状态不允许支付: {inv['status']}")
 
+    if idempotency_key:
+        dup = conn.execute(
+            "SELECT * FROM invoice_payments WHERE idempotency_key = ? LIMIT 1",
+            (idempotency_key,),
+        ).fetchone()
+        if dup:
+            return {
+                "payment_id": dup["id"],
+                "invoice_id": dup["invoice_id"],
+                "cash_paid_cents": dup["cash_paid_cents"],
+                "promo_paid_cents": dup["promo_paid_cents"],
+                "total_paid_cents": dup["total_paid_cents"],
+                "status": "PAID",
+            }
+
     due_cents = int(inv["total_cents"]) - int(inv["paid_cents"])
     if due_cents <= 0:
         return {"invoice_id": invoice_id, "status": inv["status"], "paid_cents": 0}
@@ -101,7 +116,7 @@ def pay_invoice_from_wallet(
     rem_to_consume = promo_used
     if rem_to_consume > 0:
         grants = conn.execute(
-            "SELECT * FROM promo_grants WHERE tenant_id = ? AND status = 'ACTIVE' AND remaining_cents > 0 ORDER BY expires_at ASC",
+            "SELECT * FROM promo_grants WHERE tenant_id = ? AND status = 'ACTIVE' AND remaining_cents > 0 ORDER BY expires_at DESC",
             (tenant_id,),
         ).fetchall()
         for g in grants:
@@ -196,7 +211,16 @@ def refund_to_wallet(
         "UPDATE invoices SET refunded_cents = ?, status = ?, updated_at = ? WHERE id = ?",
         (new_refunded, new_status, now, invoice_id),
     )
-    event_bus.publish("invoice.refunded", {"invoice_id": invoice_id, "tenant_id": tenant_id, "refund_cents": refund_cents})
+    event_bus.publish(
+        "invoice.refunded",
+        {
+            "invoice_id": invoice_id,
+            "tenant_id": tenant_id,
+            "refund_cents": refund_cents,
+            "cash_refunded_cents": cash_back,
+            "promo_refunded_cents": promo_back,
+        },
+    )
     return {
         "invoice_id": invoice_id,
         "refund_cents": refund_cents,

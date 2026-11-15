@@ -39,3 +39,50 @@ def enqueue_tenant_webhook(
         (msg_id, tenant_id, event_type, payload_str, sig, now),
     )
     return msg_id
+
+
+def dispatch_queued_webhooks(
+    conn: sqlite3.Connection,
+    batch_limit: int = 50,
+) -> Dict[str, Any]:
+    """扫描异步发件箱并按批次投递待发送回调消息。"""
+    rows = conn.execute(
+        """
+        SELECT w.*, t.webhook_url
+        FROM webhook_outbox w
+        JOIN tenants t ON t.id = w.tenant_id
+        WHERE w.delivery_status = 'QUEUED'
+        ORDER BY w.created_at ASC, w.id ASC
+        LIMIT ?
+        """,
+        (int(batch_limit),),
+    ).fetchall()
+
+    delivered = 0
+    failed = 0
+    dead_lettered = 0
+    for r in rows:
+        url = str(r["webhook_url"] or "").strip()
+        new_attempts = int(r["attempts"] or 0) + 1
+        # 离线沙盒模拟：以 unreachable.invalid 或 fail:// 开头的回调地址代表远端超时/5xx 失败
+        is_failing_endpoint = (not url) or ("unreachable.invalid" in url) or url.startswith("fail://")
+        if not is_failing_endpoint:
+            conn.execute(
+                "UPDATE webhook_outbox SET delivery_status = 'DELIVERED', attempts = ? WHERE id = ?",
+                (new_attempts, r["id"]),
+            )
+            delivered += 1
+        else:
+            # 投递未成功时累加尝试次数留待下轮重试
+            conn.execute(
+                "UPDATE webhook_outbox SET delivery_status = 'QUEUED', attempts = ? WHERE id = ?",
+                (new_attempts, r["id"]),
+            )
+            failed += 1
+
+    return {
+        "scanned": len(rows),
+        "delivered": delivered,
+        "failed": failed,
+        "dead_lettered": dead_lettered,
+    }

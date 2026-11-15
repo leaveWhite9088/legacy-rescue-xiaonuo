@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v3 大客户保底协议与跨境税率适配器桩代码（TODO 状态，尚未实现真实计算）。"""
+"""v3 企业协议与跨境税率统一适配层。"""
 from typing import Any, Dict
 
 

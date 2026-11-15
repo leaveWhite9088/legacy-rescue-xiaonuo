@@ -7,6 +7,7 @@ from app.routes.auth import require_admin, require_tenant
 from app.services.fapiao_service import (
     get_tenant_fapiao_list,
     issue_red_letter_fapiao,
+    preview_invoice_fapiao_split,
     reconcile_period_fapiao_ledger,
     request_vat_fapiao_for_invoice,
 )
@@ -71,3 +72,29 @@ def admin_red_reverse(fapiao_id: str):
         return jsonify({"error": str(e)}), 404
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+
+
+@bp.route("/split-preview/<invoice_id>", methods=["GET"])
+@require_tenant
+def tenant_fapiao_split_preview(invoice_id: str):
+    db_path = current_app.config.get("DB_PATH")
+    try:
+        with tx_context(db_path) as conn:
+            res = preview_invoice_fapiao_split(conn, g.tenant["id"], invoice_id)
+        return jsonify(res)
+    except LookupError as e:
+        return jsonify({"error": str(e)}), 404
+    except PermissionError as e:
+        return jsonify({"error": str(e)}), 403
+
+
+@bp.route("/sync-red-letters", methods=["POST"])
+@require_admin
+def admin_sync_red_letters():
+    from app.finance_recon_hub.golden_tax_red_letter_matcher import sync_red_letter_confirmations
+
+    data = request.get_json(silent=True) or {}
+    items = data.get("confirmations") or []
+    db_path = current_app.config.get("DB_PATH")
+    with tx_context(db_path, immediate=True) as conn:
+        return jsonify(sync_red_letter_confirmations(conn, items, operator="admin_api"))

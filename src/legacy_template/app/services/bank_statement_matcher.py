@@ -74,3 +74,27 @@ def import_and_match_bank_csv(conn: sqlite3.Connection, csv_text: str, auto_clai
         })
 
     return {"imported_count": imported, "auto_claimed_count": auto_claimed, "items": results}
+
+
+def manual_claim_bank_statement(
+    conn: sqlite3.Connection,
+    import_id: str,
+    tenant_id: str,
+    operator: str = "finance_clerk",
+) -> Dict[str, Any]:
+    """财务人工认领未自动匹配的对公水单并充入租户现金池。"""
+    row = conn.execute("SELECT * FROM bank_statement_imports WHERE id = ?", (import_id,)).fetchone()
+    if not row:
+        raise LookupError("银行水单记录不存在")
+    tenant = conn.execute("SELECT id FROM tenants WHERE id = ?", (tenant_id,)).fetchone()
+    if not tenant:
+        raise LookupError("目标租户不存在")
+
+    amt = int(row["amount_cents"])
+    serial = str(row["bank_serial_no"])
+    topup_cash(conn, tenant_id, amt, ref_id=serial, note=f"人工水单认领:{serial}:{operator}")
+    conn.execute(
+        "UPDATE bank_statement_imports SET matched_tenant_id = ?, status = 'CLAIMED' WHERE id = ?",
+        (tenant_id, import_id),
+    )
+    return {"import_id": import_id, "tenant_id": tenant_id, "amount_cents": amt, "status": "CLAIMED"}
