@@ -4,7 +4,7 @@
 每轮排障结束提交时：
 1) 记录本轮单轮耗时与自起局以来的累计耗时；
 2) 在 runs/<run_id>/rounds/round-0X/snapshot/ 冻结不可篡改的阶段交付快照（供最终 finalize 计算轮次折扣）；
-3) 返回五大业务域的去分母定性灯号（「已闭环」或「仍有异常未闭环」），严格隐藏题目数量、伪反馈陷阱与封账红线状态，且绝不提前计算或写入正式得分。
+3) 返回七大业务域的去分母定性灯号（「已闭环」或「仍有异常未闭环」），严格隐藏题目数量、伪反馈陷阱与封账红线状态，且绝不提前计算或写入正式得分。
 """
 import argparse
 from datetime import datetime, timezone
@@ -133,7 +133,7 @@ def checkpoint_round(
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="提交单轮排障成果并获取五大业务域定性门禁回执（最多 3 轮）")
+    ap = argparse.ArgumentParser(description="提交单轮排障成果并获取七大业务域定性门禁回执（最多 3 轮）")
     ap.add_argument("--sandbox", required=True, help="选手工作沙盒目录路径")
     ap.add_argument("--round", type=int, default=None, help="当前轮次编号（1 / 2 / 3，须严格递增，可省略自动顺延）")
     ap.add_argument("--run-id", default=None, help="运行 ID（默认从 .rescue_session.json 读取）")
@@ -158,7 +158,7 @@ def main() -> int:
 
     if rec["gatekeeper"]["all_closed"]:
         print(
-            "门禁结论：五大业务域均已闭环！（注：历史封账红线、存量老客户兼容与伪反馈合规边界不在门禁提示范围内，"
+            "门禁结论：七大业务域均已闭环！（注：历史封账红线、存量老客户兼容与伪反馈合规边界不在门禁提示范围内，"
             "请自行最终核验报告与测试无误后，执行 finish_rescue.py 收工封包，无需再跑后续轮次。）"
         )
     elif rec["round"] < MAX_ROUNDS:

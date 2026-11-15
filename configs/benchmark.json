@@ -1,132 +1,118 @@
 {
   "benchmark_id": "legacy-rescue-xiaonuo",
-  "version": "3.0.0",
-  "title": "遗留救火 · 多轮深水区复杂暗病排障基准（云策企业订阅与阶梯计费账务中心 v3.0）",
+  "version": "4.0.0",
+  "title": "遗留救火 · 多轮深水区企业屎山排障基准（云策企业订阅与多币种财税账务中心 v4.0）",
   "weights": {
-    "A_root_cause_and_ledger": 35.0,
-    "A1_bugs": 25.0,
-    "A2_dirty_data": 10.0,
-    "B_regression_protection": 20.0,
-    "C_surgery_and_tests": 10.0,
-    "C1_surgery_precision": 5.0,
-    "C2_mutation_tests": 5.0,
-    "T_efficiency": 15.0,
+    "A_root_cause_and_ledger": 62.0,
+    "A1_bugs": 45.0,
+    "A2_dirty_data": 17.0,
+    "a1_convex_exponent": 2.0,
+    "a2_convex_exponent": 2.0,
+    "B_regression_protection": 0.0,
+    "C_surgery_and_tests": 12.0,
+    "C1_surgery_precision": 6.0,
+    "C2_mutation_tests": 6.0,
+    "T_efficiency": 6.0,
     "D_blind_review": 20.0,
     "D1_attribution": 8.0,
     "D2_boundary_discipline": 6.0,
     "D3_engineering_rationality": 6.0
   },
   "timing": {
-    "full_score_minutes": 45.0,
+    "full_score_minutes": 15.0,
     "half_life_minutes": 45.0,
-    "max_score": 15.0,
+    "max_score": 6.0,
+    "quality_a_exponent": 1.2,
     "mtime_tolerance_seconds": 5.0
   },
   "rounds": {
     "max_rounds": 3,
     "multipliers": {
       "1": 1.0,
-      "2": 0.9,
-      "3": 0.8
+      "2": 0.85,
+      "3": 0.7
     }
+  },
+  "regression": {
+    "max_score": 0.0,
+    "penalty_per_failure": 3.0,
+    "severe_penalty_factor": 0.65
   },
   "surgery": {
-    "ideal_changed_lines_min": 90,
-    "ideal_changed_lines_max": 650,
-    "soft_limit_changed_lines": 1300,
-    "hard_limit_changed_lines": 2500,
-    "ideal_changed_files_max": 36
+    "ideal_changed_lines_min": 260,
+    "ideal_changed_lines_max": 900,
+    "soft_limit_changed_lines": 2000,
+    "hard_limit_changed_lines": 3200,
+    "ideal_changed_files_max": 55,
+    "dead_code_penalty_per_file": 0.25,
+    "min_catching_test_methods": 18
   },
   "bugs": [
-    {
-      "id": "BUG-01",
-      "name": "跨层事件Topic错配致套餐缓存失配 + 延迟计量与出账未按发生时点套餐分段核算",
-      "points": 2.5,
-      "category": "跨层事件传导 + 缓存/异步分段计费"
-    },
-    {
-      "id": "BUG-02",
-      "name": "钱包混合支付（赠送金+现金）退款洗现漏洞与赠送金到期非幂等双扣",
-      "points": 2.0,
-      "category": "长链路传导 + 双账本资金守恒"
-    },
-    {
-      "id": "BUG-03",
-      "name": "高并发支付双扣/幂等失效与零点续费批处理撞车重复开票",
-      "points": 2.0,
-      "category": "并发竞争与时序幂等"
-    },
-    {
-      "id": "BUG-04",
-      "name": "自动结算批处理吞异常导致账单永久卡死 PENDING_SETTLE 中间态且漏记死信",
-      "points": 1.5,
-      "category": "状态机撕裂 + 异步死信补偿"
-    },
-    {
-      "id": "BUG-05",
-      "name": "伪造复合条件绕过的账单/争议越权、管理端漏鉴权、双写路径穿越、非正用量与XSS/堆栈泄露",
-      "points": 2.0,
-      "category": "多维安全与复杂条件陷阱防护"
-    },
-    {
-      "id": "BUG-06",
-      "name": "2024存量异构老租户（ACTIVE_LEGACY / YUAN_STR / 封顶折扣合同）兼容保护",
-      "points": 1.5,
-      "category": "跷跷板历史契约兼容"
-    },
-    {
-      "id": "BUG-07",
-      "name": "已封账历史账期（CLOSED）重算与延迟计量静默篡改防护及跨期调账路由",
-      "points": 2.0,
-      "category": "财务封账铁律与跨期冲抵"
-    },
-    {
-      "id": "BUG-08",
-      "name": "启动期紧急猴子补丁（hotfix_20261031_tz_and_vip）静默抹零大额价外增值税",
-      "points": 2.0,
-      "category": "紧急补丁文化 + 运行时猴子补丁篡改"
-    },
-    {
-      "id": "BUG-09",
-      "name": "多源配置漂移与动态开关 bool('false')==True 解析反转致期中升配补差价被豁免",
-      "points": 1.5,
-      "category": "配置漂移 + 隐式类型转换缺陷"
-    },
-    {
-      "id": "BUG-10",
-      "name": "边缘网关批量上报跨时区（+08:00 vs UTC）字符串直切错配账期、零值放行与重试非幂等500",
-      "points": 1.5,
-      "category": "分布式时序/时区归一化 + 批处理幂等"
-    },
-    {
-      "id": "BUG-11",
-      "name": "争议冻结账单仍被夜间自动结算强扣 + 死信重试克隆扣款分支漏减已付金额导致重复超扣",
-      "points": 1.5,
-      "category": "状态机混乱 + 复制粘贴克隆分叉"
-    },
-    {
-      "id": "BUG-12",
-      "name": "只读结算预览GET接口写库误锁赠送金（LOCKED_PREVIEW）及过度设计资费缓存代理可变引用污染",
-      "points": 1.5,
-      "category": "隐蔽写副作用函数 + 过度设计抽象泄漏"
-    },
-    {
-      "id": "BUG-13",
-      "name": "金税四期黑盒SDK单页50条静默截断漏算、含税拆票1分钱尾差失衡及并发重开蓝票",
-      "points": 1.5,
-      "category": "第三方依赖黑盒契约 + 财税分位守恒与并发"
-    },
-    {
-      "id": "BUG-14",
-      "name": "请求上下文中间件每请求向全局event_bus泄漏匿名闭包订阅 + 独立审计报表异常分支SQLite句柄泄漏",
-      "points": 1.0,
-      "category": "内存订阅与数据库连接资源泄漏"
-    },
-    {
-      "id": "BUG-15",
-      "name": "跨期调账核销沿用一代系统减号潜规则反转有向delta_cents致贷项冲减变加收",
-      "points": 1.0,
-      "category": "隐式约定/历史潜规则符号反转"
-    }
+    {"id": "BUG-01", "points": 0.5, "silent": false, "domain": "计量归集与套餐协议链路", "name": "变配事件Topic错位致配额缓存失配 + 双写缓冲与刷盘丢失事件时点套餐"},
+    {"id": "BUG-02", "points": 0.5, "silent": false, "domain": "计量归集与套餐协议链路", "name": "期中变配未按各套餐分段独立核算超额费 + 定制阶梯试算器区间宽度少1差错"},
+    {"id": "BUG-03", "points": 0.5, "silent": false, "domain": "计量归集与套餐协议链路", "name": "动态配置字符串'false'判真豁免升配补差 + 升配剩余天数先整除致补差恒为0"},
+    {"id": "BUG-04", "points": 0.4, "silent": false, "domain": "计量归集与套餐协议链路", "name": "单笔与批量计量接口放行零值用量 + 批量带偏移时间戳未转UTC即截取账期"},
+    {"id": "BUG-05", "points": 0.4, "silent": true,  "domain": "计量归集与套餐协议链路", "name": "批量上报重放未查持久化表致主键冲突500 + 滑窗幂等环8字符前缀哈希碰撞"},
+    {"id": "BUG-06", "points": 0.4, "silent": true,  "domain": "计量归集与套餐协议链路", "name": "跨区域网关分片归并器直接赋值覆盖吞掉前序分片且未拦截非正用量"},
+    {"id": "BUG-07", "points": 0.5, "silent": false, "domain": "计量归集与套餐协议链路", "name": "周期出账漏传账期锚点误套过期框架合同 + 协议折让在保底补齐后扣减击穿保底线"},
+    {"id": "BUG-08", "points": 0.4, "silent": true,  "domain": "计量归集与套餐协议链路", "name": "极端SLA故障150%赔付突破当期月费100%封顶 + 扫描任务重跑重复签发贷项单"},
+    {"id": "BUG-09", "points": 0.3, "silent": true,  "domain": "计量归集与套餐协议链路", "name": "资费策略链缓存返回可变字典引用串味 + 价目覆盖诊断函数默认可变列表累积污染"},
+
+    {"id": "BUG-10", "points": 0.5, "silent": false, "domain": "钱包双账本与自动结算链路", "name": "混合支付退款快退模式将赠送金洗成可提现现金 + 未恢复赠送金批次剩余额度与状态"},
+    {"id": "BUG-11", "points": 0.4, "silent": false, "domain": "钱包双账本与自动结算链路", "name": "赠送金到期清理按初始面值重复扣成负数 + 支付扣款未过滤已过期未清理券且排序倒置"},
+    {"id": "BUG-12", "points": 0.5, "silent": false, "domain": "钱包双账本与自动结算链路", "name": "手工支付缺IMMEDIATE写锁与原子状态抢占致并发双扣 + 幂等键未绑定租户与账单"},
+    {"id": "BUG-13", "points": 0.4, "silent": false, "domain": "钱包双账本与自动结算链路", "name": "零点续费与手工续期同周期重复出单 + 对已停机或关闭自动续费订阅违规滚出新单"},
+    {"id": "BUG-14", "points": 0.5, "silent": false, "domain": "钱包双账本与自动结算链路", "name": "夜间自动结算缺SAVEPOINT单笔回滚致失败单永久卡死PENDING_SETTLE且漏写死信"},
+    {"id": "BUG-15", "points": 0.4, "silent": false, "domain": "钱包双账本与自动结算链路", "name": "自动结算未跳过争议冻结账单 + 后台驳回争议漏清空冻结标记与争议原因"},
+    {"id": "BUG-16", "points": 0.5, "silent": false, "domain": "钱包双账本与自动结算链路", "name": "死信重试克隆扣款无视已付金额全额重扣 + 结清后漏将死信状态置为RESOLVED"},
+    {"id": "BUG-17", "points": 0.4, "silent": false, "domain": "钱包双账本与自动结算链路", "name": "只读结算预览GET接口写库误锁有效券为LOCKED_PREVIEW + 预览基数未扣减已付额"},
+    {"id": "BUG-18", "points": 0.4, "silent": true,  "domain": "钱包双账本与自动结算链路", "name": "银企水单匹配未归一化中文全角括号漏认领 + 人工认领未拦截已入账水单致重复加钱"},
+
+    {"id": "BUG-19", "points": 0.5, "silent": false, "domain": "多币种锁汇与跨境财资链路", "name": "外币锁汇未取账单出账日有效牌价误落7.0兜底 + 万分比先整除截断全部小数汇率"},
+    {"id": "BUG-20", "points": 0.4, "silent": true,  "domain": "多币种锁汇与跨境财资链路", "name": "月末外币重估未排除已结清作废账单 + 未实现汇兑损益正负方向颠倒"},
+    {"id": "BUG-21", "points": 0.4, "silent": false, "domain": "多币种锁汇与跨境财资链路", "name": "跨境常规SaaS订阅被误征特许权预提税 + 净额包税Gross-up倒算分母写反"},
+    {"id": "BUG-22", "points": 0.3, "silent": true,  "domain": "多币种锁汇与跨境财资链路", "name": "支付通道费路由与稽核对纯赠送金0现金交易仍计提2分钱保底手续费"},
+    {"id": "BUG-23", "points": 0.4, "silent": false, "domain": "多币种锁汇与跨境财资链路", "name": "履约保证金抵缴账单仅扣减保证金余额却漏更新账单实付状态与收款明细"},
+    {"id": "BUG-24", "points": 0.3, "silent": true,  "domain": "多币种锁汇与跨境财资链路", "name": "集团外部净营收汇总未剔除内部关联交易结算主体虚增合并收入"},
+
+    {"id": "BUG-25", "points": 0.5, "silent": false, "domain": "金税数电票与跨期调账链路", "name": "启动期双紧急热补丁抹零大额价外增值税并篡改数电票单张限额为500元"},
+    {"id": "BUG-26", "points": 0.5, "silent": false, "domain": "金税数电票与跨期调账链路", "name": "金税四期底账核对未循环翻页被50条截断且未剔除已红冲作废原蓝票"},
+    {"id": "BUG-27", "points": 0.4, "silent": false, "domain": "金税数电票与跨期调账链路", "name": "数电开票与拆票预览双重向下取整差1分钱且预览未按实付现金净额拆票"},
+    {"id": "BUG-28", "points": 0.5, "silent": false, "domain": "金税数电票与跨期调账链路", "name": "开票接口缺IMMEDIATE写锁致并发重开蓝票 + 可开票额误扣减退回赠送金部分"},
+    {"id": "BUG-29", "points": 0.4, "silent": true,  "domain": "金税数电票与跨期调账链路", "name": "红字信息表批量同步将红票金额存为正数且漏将原蓝票置为RED_REVERSED"},
+    {"id": "BUG-30", "points": 0.5, "silent": false, "domain": "金税数电票与跨期调账链路", "name": "账单重算直接覆写CLOSED封账单而非生成跨期调账 + 迟到话单刷入已封账期"},
+    {"id": "BUG-31", "points": 0.4, "silent": false, "domain": "金税数电票与跨期调账链路", "name": "开放期核销调账单正负号反算 + 未校验PENDING状态允许同一调账单无限重复核销"},
+
+    {"id": "BUG-32", "points": 0.5, "silent": true,  "domain": "复式总账与递延摊销链路", "name": "复式总账凭证生成器对含跨期调账账单漏记调账差额分录导致借贷失衡"},
+    {"id": "BUG-33", "points": 0.4, "silent": true,  "domain": "复式总账与递延摊销链路", "name": "ERP实时同步钩子漏订阅退款事件且未按实退现金生成负数红字冲销凭证"},
+    {"id": "BUG-34", "points": 0.5, "silent": false, "domain": "复式总账与递延摊销链路", "name": "多月预付合同递延摊销未剥离含税销项税额且整除余数尾差丢失不守恒"},
+    {"id": "BUG-35", "points": 0.4, "silent": true,  "domain": "复式总账与递延摊销链路", "name": "期中升配合同变更重排递延摊销表违规回溯篡改已关账已确认历史月份"},
+    {"id": "BUG-36", "points": 0.3, "silent": true,  "domain": "复式总账与递延摊销链路", "name": "赠送金合同负债滚存核对表漏加退款退回赠金变动导致期末滚存恒报不平"},
+    {"id": "BUG-37", "points": 0.4, "silent": true,  "domain": "复式总账与递延摊销链路", "name": "话单账单总账三方勾稽直接LEFT JOIN多分段汇总行产生笛卡尔倍增虚高"},
+    {"id": "BUG-38", "points": 0.4, "silent": false, "domain": "复式总账与递延摊销链路", "name": "中国境内增值税纳税申报底稿误将新加坡9%境外消费税混入国内销项税"},
+
+    {"id": "BUG-39", "points": 0.5, "silent": false, "domain": "渠道分润与催收内控链路", "name": "渠道返佣按原账单账期漏算跨月现金退款扣回且用max(0)吞掉负向冲抵佣金"},
+    {"id": "BUG-40", "points": 0.4, "silent": false, "domain": "渠道分润与催收内控链路", "name": "渠道季度动态评级误按含未付欠款与赠金的账单总额评定致虚假跳档"},
+    {"id": "BUG-41", "points": 0.4, "silent": true,  "domain": "渠道分润与催收内控链路", "name": "重算渠道返佣时ON CONFLICT覆盖已打款锁定的PAID_OUT记录打回CALCULATED"},
+    {"id": "BUG-42", "points": 0.3, "silent": true,  "domain": "渠道分润与催收内控链路", "name": "总代与二级子代理分润未按级差计提管理津贴而全额叠加发双份佣金"},
+    {"id": "BUG-43", "points": 0.4, "silent": true,  "domain": "渠道分润与催收内控链路", "name": "渠道返佣未校验推荐绑定时间窗把绑定前历史回款计入新代理名下"},
+    {"id": "BUG-44", "points": 0.4, "silent": false, "domain": "渠道分润与催收内控链路", "name": "逾期催收评估与升级任务未跳过争议冻结账单导致争议核账客户被误停机"},
+    {"id": "BUG-45", "points": 0.5, "silent": false, "domain": "渠道分润与催收内控链路", "name": "欠费停机租户缴清全部逾期欠款后未自动恢复租户与订阅为ACTIVE状态"},
+    {"id": "BUG-46", "points": 0.4, "silent": false, "domain": "渠道分润与催收内控链路", "name": "每日催收任务未校验单次计提幂等且未按未付本金核算导致5%滞纳金复利滚雪球"},
+    {"id": "BUG-47", "points": 0.5, "silent": false, "domain": "渠道分润与催收内控链路", "name": "财务双签审批未做大小写空白归一化可自申自批且非REJECT动作词误判通过"},
+    {"id": "BUG-48", "points": 0.5, "silent": false, "domain": "渠道分润与催收内控链路", "name": "单笔满5000元大额退费与大额调账核销缺失终审通过双签审批单强制闸口"},
+    {"id": "BUG-49", "points": 0.3, "silent": true,  "domain": "渠道分润与催收内控链路", "name": "SOX内控职责分离巡检仅做大小写敏感二审比对漏检一审自批违规记录"},
+    {"id": "BUG-50", "points": 0.3, "silent": true,  "domain": "渠道分润与催收内控链路", "name": "审批决策接口缺IMMEDIATE写锁与条件状态乐观更新致并发穿透双签"},
+
+    {"id": "BUG-51", "points": 0.5, "silent": false, "domain": "安全导出前端与开放期平账链路", "name": "账单详情/争议/结算预览横向越权IDOR + 管理端批处理与导出接口缺失鉴权"},
+    {"id": "BUG-52", "points": 0.4, "silent": false, "domain": "安全导出前端与开放期平账链路", "name": "导出路径单次替换可被双写穿越绕过 + 全局异常回吐堆栈并误将404/405变500"},
+    {"id": "BUG-53", "points": 0.4, "silent": true,  "domain": "安全导出前端与开放期平账链路", "name": "Webhook验签缺常量时间比对与300秒重放拦截 + 连续失败5次未转入DEAD_LETTER"},
+    {"id": "BUG-54", "points": 0.4, "silent": true,  "domain": "安全导出前端与开放期平账链路", "name": "每请求事件监听累积泄漏 + 独立审计异常漏关SQLite连接 + 限流桶无限膨胀"},
+    {"id": "BUG-55", "points": 0.3, "silent": true,  "domain": "安全导出前端与开放期平账链路", "name": "CSV导出未转义公式注入危险前缀 + 分页导出缺唯一ID次级排序致跨页重漏"},
+    {"id": "BUG-56", "points": 0.3, "silent": true,  "domain": "安全导出前端与开放期平账链路", "name": "经营看板MRR误计入停机与期末退订订阅 + 现金回款率误把赠送金计入现金分子"},
+    {"id": "BUG-57", "points": 0.4, "silent": false, "domain": "安全导出前端与开放期平账链路", "name": "门户与后台四处活跃视图(账单/租户/审批/催收)未转义动态字段导致DOM XSS"},
+    {"id": "BUG-58", "points": 0.4, "silent": false, "domain": "安全导出前端与开放期平账链路", "name": "前端分转元浮点乘法精度尾巴与负数符号错位 + 部分付款账单待付列未减已付额"},
+    {"id": "BUG-59", "points": 0.4, "silent": false, "domain": "安全导出前端与开放期平账链路", "name": "前端数电票拆票预览未扣除赠送金抵扣额且向下取整拆税产生1分钱尾差"},
+    {"id": "BUG-60", "points": 0.3, "silent": true,  "domain": "安全导出前端与开放期平账链路", "name": "后台审批抽屉误禁用FIRST_APPROVED二签按钮 + 调账弹窗Math.abs吞掉贷项负号"}
   ]
 }

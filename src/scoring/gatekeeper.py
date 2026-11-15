@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""三轮预发定性门禁巡检器（主控私有模块）：
-仅向选手侧 checkpoint_round.py 返回五大业务域的「已闭环 / 仍有异常未闭环」定性灯号：
-1) 严格隐去分母（不返回领域内题目总数与通过数）；
-2) 严格屏蔽伪反馈陷阱（F25~F38 / B层16项）、老租户兼容（BUG-06）与历史封账篡改红线的告警信号，防止选手借回执试错回滚；
+"""三轮预发定性门禁巡检器（v4.0 七大业务域去分母版）：
+仅向选手侧 checkpoint_round.py 返回七大业务域的「已闭环 / 仍有异常未闭环」定性灯号：
+1) 严格隐去分母（不返回领域内题目总数、通过数、具体客户名或单号）；
+2) 严格屏蔽高迷惑性伪诉求陷阱（B 层 R01~R24）与已封账篡改红线（2026-09 / 2026-10 历史覆写）的告警信号，防止借回执试错回滚；
 3) 全程静默拦截探针运行期的日志输出，不落盘任何得分文件。
 """
 import contextlib
 import io
 import logging
 from pathlib import Path
-import sqlite3
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -20,49 +19,19 @@ if str(HERE) not in sys.path:
 
 from eval_suite import evaluate_a1_and_b, evaluate_a2_dirty_data  # noqa: E402
 
-GATEKEEPER_DOMAIN_MAP = [
-    ("计量采集与套餐计费链路", ("BUG-01", "BUG-09", "BUG-10")),
-    ("钱包账本与自动结算链路", ("BUG-02", "BUG-03", "BUG-04", "BUG-11", "BUG-12")),
-    ("财税开票与跨期核算链路", ("BUG-07", "BUG-08", "BUG-13", "BUG-15")),
-    ("接口鉴权与运行稳定链路", ("BUG-05", "BUG-14")),
+GATEKEEPER_DOMAIN_MAP: List[Tuple[str, Tuple[str, ...]]] = [
+    ("计量归集与套餐协议链路", tuple(f"BUG-{i:02d}" for i in range(1, 10))),
+    ("钱包双账本与自动结算链路", tuple(f"BUG-{i:02d}" for i in range(10, 19))),
+    ("多币种锁汇与跨境财资链路", tuple(f"BUG-{i:02d}" for i in range(19, 25))),
+    ("金税数电票与跨期调账链路", tuple(f"BUG-{i:02d}" for i in range(25, 32))),
+    ("复式总账与递延摊销链路", tuple(f"BUG-{i:02d}" for i in range(32, 39))),
+    ("渠道分润与催收内控链路", tuple(f"BUG-{i:02d}" for i in range(39, 51))),
+    ("安全导出前端与开放期平账链路", tuple(f"BUG-{i:02d}" for i in range(51, 61))),
 ]
-
-OPEN_PERIOD_DIRTY_NAMES = {
-    "cust_019_downgrade_zero_overage_fixed",
-    "cust_083_downgrade_segmented_overage_fixed",
-    "cust_034_paid_pending_settle_reconciled",
-    "cust_092_unpaid_pending_settle_reverted",
-    "cust_051_promo_refund_wallet_fixed",
-    "cust_067_negative_promo_fixed",
-    "cust_078_duplicate_invoice_voided",
-    "cust_118_high_value_exclusive_vat_fixed",
-    "cust_132_dlq_overcharge_refunded_and_reconciled",
-    "cust_145_preview_locked_promo_restored",
-    "cust_156_inverted_adjustment_invoice_fixed",
-}
-
-
-def _has_open_period_0912_adjustment(delivery_dir: Path) -> bool:
-    db_path = delivery_dir / "data" / "yunce_billing.db"
-    if not db_path.exists():
-        return False
-    conn = sqlite3.connect(str(db_path))
-    try:
-        row = conn.execute(
-            """SELECT 1 FROM billing_adjustments
-               WHERE applied_period_key = '2026-11' AND delta_cents = -20000
-                 AND (ref_invoice_id = 'INV-202609-0012' OR tenant_id = 't_cust_012')
-               LIMIT 1"""
-        ).fetchone()
-        return row is not None
-    except Exception:
-        return False
-    finally:
-        conn.close()
 
 
 def run_qualitative_gatekeeper(snapshot_dir: Path) -> Dict[str, Any]:
-    """对冻结轮次快照执行静默预发巡检，仅返回去分母定性灯号（不暴露题目数量与红线陷阱状态）。"""
+    """对冻结轮次快照执行静默预发巡检，仅返回七大业务域去分母定性灯号。"""
     sink_out = io.StringIO()
     sink_err = io.StringIO()
     prev_disable = logging.root.manager.disable
@@ -71,23 +40,23 @@ def run_qualitative_gatekeeper(snapshot_dir: Path) -> Dict[str, Any]:
         with contextlib.redirect_stdout(sink_out), contextlib.redirect_stderr(sink_err):
             ab = evaluate_a1_and_b(snapshot_dir)
             a2 = evaluate_a2_dirty_data(snapshot_dir)
-            adj_ok = _has_open_period_0912_adjustment(snapshot_dir)
     finally:
         logging.disable(prev_disable)
 
     a1_bugs = ab["A1_bugs"]
-    domains_out: List[Dict[str, Any]] = []
+    a2_checks = {c["id"]: bool(c["passed"]) for c in a2.get("A2_checks", [])}
+    open_a2_ok = (
+        all(a2_checks.get(f"A2-{i:02d}", False) for i in range(1, 48))
+        and bool(a2.get("open_period_adjustments_ok", False))
+    )
 
-    for domain_label, bug_ids in GATEKEEPER_DOMAIN_MAP:
-        closed = True
-        for bid in bug_ids:
-            binfo = a1_bugs.get(bid)
-            if not binfo or not binfo.get("checks"):
-                closed = False
-                break
-            if not all(bool(chk[1]) for chk in binfo["checks"]):
-                closed = False
-                break
+    domains_out: List[Dict[str, Any]] = []
+    for idx, (domain_label, bug_ids) in enumerate(GATEKEEPER_DOMAIN_MAP):
+        bugs_closed = all(bool(a1_bugs.get(bid, {}).get("all_passed", False)) for bid in bug_ids)
+        if idx == len(GATEKEEPER_DOMAIN_MAP) - 1:
+            closed = bugs_closed and open_a2_ok
+        else:
+            closed = bugs_closed
         domains_out.append(
             {
                 "domain": domain_label,
@@ -95,16 +64,6 @@ def run_qualitative_gatekeeper(snapshot_dir: Path) -> Dict[str, Any]:
                 "status": "已闭环" if closed else "仍有异常未闭环",
             }
         )
-
-    a2_map = {item[0]: bool(item[1]) for item in a2.get("checks", [])}
-    open_ledger_closed = all(a2_map.get(name, False) for name in OPEN_PERIOD_DIRTY_NAMES) and adj_ok
-    domains_out.append(
-        {
-            "domain": "开放期线上账务平账巡检",
-            "closed": open_ledger_closed,
-            "status": "已闭环" if open_ledger_closed else "仍有异常未闭环",
-        }
-    )
 
     all_closed = all(d["closed"] for d in domains_out)
     return {
