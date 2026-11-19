@@ -6,6 +6,7 @@
 """
 import argparse
 from datetime import datetime, timezone
+import difflib
 import json
 from pathlib import Path
 import random
@@ -17,6 +18,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 
+from code_audit import DEAD_CODE_FILES, DEAD_CODE_PREFIXES, TEMPLATE_DIR, _iter_source_files  # noqa: E402
 from model_identity import canonical_model_id  # noqa: E402
 from score_delivery import build_fact_card  # noqa: E402
 
@@ -31,6 +33,48 @@ def _sanitize_report(text: str, tokens_to_redact: set[str]) -> str:
         if tok and len(tok) >= 3:
             out = re.sub(re.escape(tok), "匿名模型", out, flags=re.IGNORECASE)
     return out
+
+
+def _render_sanitized_diff(delivery_dir: Path, redact_tokens: set[str]) -> str:
+    """导出交付快照相对模板原件的脱敏源码统一 diff（供盲评评委直接审阅代码实现）。"""
+    tmpl_files = _iter_source_files(TEMPLATE_DIR)
+    deliv_files = _iter_source_files(delivery_dir)
+    all_rels = sorted(set(tmpl_files.keys()) | set(deliv_files.keys()))
+    chunks: list[str] = []
+
+    for rel in all_rels:
+        if rel == "事故排查与处置说明.md":
+            continue
+        old_lines = (
+            tmpl_files[rel].read_text(encoding="utf-8", errors="replace").splitlines()
+            if rel in tmpl_files
+            else []
+        )
+        new_lines = (
+            deliv_files[rel].read_text(encoding="utf-8", errors="replace").splitlines()
+            if rel in deliv_files
+            else []
+        )
+        if old_lines == new_lines:
+            continue
+
+        is_dead = (rel in DEAD_CODE_FILES) or any(rel.startswith(dp) for dp in DEAD_CODE_PREFIXES)
+        if is_dead:
+            chunks.append(f"# [DEAD-CODE] {rel}")
+        diff_lines = list(
+            difflib.unified_diff(
+                old_lines,
+                new_lines,
+                fromfile=f"a/{rel}",
+                tofile=f"b/{rel}",
+                lineterm="",
+            )
+        )
+        chunks.extend(diff_lines)
+        chunks.append("")
+
+    raw_diff = "\n".join(chunks).strip() + ("\n" if chunks else "")
+    return _sanitize_report(raw_diff, redact_tokens)
 
 
 def _render_fact_card_md(case_id: str, fact_data: dict, redact_tokens: set[str]) -> str:
@@ -156,11 +200,13 @@ def pack_blind_reviews(model_filter: str | None = None, run_dirs: list[Path] | N
         fact_data = build_fact_card(rdir)
         case_id = f"case-{idx:02d}"
         card_file = f"{case_id}.md"
+        diff_file = f"{case_id}.diff"
         model_id = canonical_model_id(proto["model"])
         redact_set = {proto.get("model", ""), model_id, proto.get("run_id", ""), rdir.name}
         (pack_dir / card_file).write_text(_render_fact_card_md(case_id, fact_data, redact_set), encoding="utf-8")
+        (pack_dir / diff_file).write_text(_render_sanitized_diff(rdir / "delivery", redact_set), encoding="utf-8")
 
-        cases_manifest.append({"case_id": case_id, "fact_card": card_file})
+        cases_manifest.append({"case_id": case_id, "fact_card": card_file, "diff_file": diff_file})
         model_names.add(model_id)
         private_map.append(
             {
@@ -184,7 +230,7 @@ def pack_blind_reviews(model_filter: str | None = None, run_dirs: list[Path] | N
     judge_readme = [
         f"# 匿名盲评指引 · v4.0 严格硬锚点版 ({pack_id})",
         "",
-        "你只能查看本目录内的 `case-XX.md` 匿名事实卡，严禁查看 `leaderboard/blind-maps/`、`leaderboard/reviews.jsonl` 或 `runs/`。",
+        "你只能查看本目录内的 `case-XX.md` 匿名事实卡与 `case-XX.diff` 脱敏源码变更，严禁查看 `leaderboard/blind-maps/`、`leaderboard/reviews.jsonl` 或 `runs/`。",
         "",
         "## 评分维度与反端水硬性封顶规则（总分 20 分，严守定档与反端水铁律）",
         "",
