@@ -5,6 +5,7 @@
 - score_run(run_dir, record=True): 执行权威客观打分（供 finalize.py 最终一键出榜定稿调用，按单题 All-or-Nothing 与 1.00 / 0.85 / 0.70 轮次阶梯系数核算）。
 """
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -18,6 +19,16 @@ from code_audit import run_code_audit  # noqa: E402
 from eval_suite import run_eval  # noqa: E402
 
 CONFIG_PATH = ROOT / "configs" / "benchmark.json"
+
+
+def compute_scoring_fingerprint() -> str:
+    """计算当前评分配置与客观评分脚本的指纹，用于判断已落盘 评分.json 是否可直接复用。"""
+    h = hashlib.sha256()
+    for p in (CONFIG_PATH, HERE / "eval_suite.py", HERE / "code_audit.py", HERE / "score_delivery.py"):
+        if p.exists():
+            h.update(p.name.encode("utf-8"))
+            h.update(p.read_bytes())
+    return h.hexdigest()
 
 
 def compute_t_score(
@@ -343,6 +354,10 @@ def score_run(run_dir: Path, record: bool = True) -> dict:
             "mutation_tests": c["mutation_tests"],
         },
         "diagnostics": proto.get("diagnostics", {}),
+        "cache_meta": {
+            "fingerprint": compute_scoring_fingerprint(),
+            "delivery_sha256": str(proto.get("integrity", {}).get("delivery_sha256", "")),
+        },
     }
 
     _write_fact_card(run_dir, delivery_dir, final_ab, c)

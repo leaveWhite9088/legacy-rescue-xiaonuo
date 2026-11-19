@@ -19,7 +19,7 @@ sys.path.insert(0, str(HERE))
 from model_identity import canonical_model_id  # noqa: E402
 from review_merge import merge_reviews  # noqa: E402
 import review_log  # noqa: E402
-from score_delivery import score_run  # noqa: E402
+from score_delivery import compute_scoring_fingerprint, score_run  # noqa: E402
 from timing_audit import audit_runs  # noqa: E402
 
 LEADERBOARD_MD = ROOT / "leaderboard" / "scores.md"
@@ -52,6 +52,25 @@ def _discover_models_and_runs() -> dict[str, list[dict]]:
     return by_model
 
 
+def _load_cached_objective_score(run_dir: Path, expected_fp: str) -> dict | None:
+    score_path = run_dir / "评分.json"
+    proto_path = run_dir / "protocol.json"
+    if not score_path.exists() or not proto_path.exists():
+        return None
+    try:
+        cached = json.loads(score_path.read_text(encoding="utf-8"))
+        proto = json.loads(proto_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    meta = cached.get("cache_meta") or {}
+    if meta.get("fingerprint") != expected_fp:
+        return None
+    deliv_sha = str(proto.get("integrity", {}).get("delivery_sha256", ""))
+    if not deliv_sha or meta.get("delivery_sha256") != deliv_sha:
+        return None
+    return cached
+
+
 def finalize_all(
     model_filter: str | None = None,
     review_log_path: str | Path = review_log.DEFAULT_LOG,
@@ -59,6 +78,7 @@ def finalize_all(
     min_judges: int = 1,
     allow_partial: bool = False,
     dry_run: bool = False,
+    force: bool = False,
 ) -> list[dict]:
     by_model = _discover_models_and_runs()
     if not by_model:
@@ -75,6 +95,7 @@ def finalize_all(
     merged_d = merge_reviews(review_log_path, aggregate=d_aggregate)["cases"]
     timing_rep = audit_runs(ROOT / "runs")
     overlap_runs = {r["run_id"] for r in timing_rep["runs"] if r["overlaps"] or r["mtime_anomalies"]}
+    scoring_fp = compute_scoring_fingerprint()
 
     verdicts = []
     for mid in target_models:
@@ -94,8 +115,11 @@ def finalize_all(
                     continue
                 raise FileNotFoundError(f"run 缺少冻结交付目录或协议文件: {rdir}")
 
-            # 关键：在最终出榜时重新执行官方客观脚本打分定稿，绝不信任选手阶段遗留的任何分数文件
-            obj = score_run(rdir, record=not dry_run)
+            # 仅当评分配置、评分脚本与交付快照哈希均未变化时复用已定稿客观分，否则重新执行官方客观脚本；
+            # 盲评 D 分始终从最新 reviews.jsonl 实时合并，支持评委随时重评。
+            obj = None if force else _load_cached_objective_score(rdir, scoring_fp)
+            if obj is None:
+                obj = score_run(rdir, record=not dry_run)
 
             total = round(obj["objective_score"] + d_info["D_total"], 3)
             rt_list = obj["timing"].get("round_timings", [])
@@ -206,6 +230,7 @@ def main() -> int:
     ap.add_argument("--min-judges", type=int, default=1)
     ap.add_argument("--allow-partial", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--force", action="store_true", help="忽略客观分缓存，强制全量重跑所有交付物")
     args = ap.parse_args()
 
     verdicts = finalize_all(
@@ -215,6 +240,7 @@ def main() -> int:
         min_judges=args.min_judges,
         allow_partial=args.allow_partial,
         dry_run=args.dry_run,
+        force=args.force,
     )
     for v in verdicts:
         print(
